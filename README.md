@@ -16,7 +16,7 @@
 ## 🤝 Collaborators
 
 * **Hritwik Johri** – Lead developer
-* **Kunal Khari** 
+* **KHazard** 
 
 ## 🙌 Special Thanks
 
