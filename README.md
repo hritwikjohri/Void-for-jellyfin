@@ -1,4 +1,4 @@
-# Void
+# Void for Jellyfin Android 
 
 *This is an alpha preview, not beta or a full release, so expect plenty of bugs.*
 
