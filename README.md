@@ -16,7 +16,7 @@
 ## 🤝 Collaborators
 
 * **Hritwik Johri** – Lead developer
-* **Kunal Khari** (*[hazardsharex@gmail.com](mailto:hazardsharex@gmail.com)*)
+* **Kunal Khari** 
 
 ## 🙌 Special Thanks
 
