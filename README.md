@@ -39,5 +39,5 @@
 
 * **Jellyfin Project** – for the amazing open-source media server
 * **Findroid & Streamyfin devs** – inspiration and feature references
-* **MPV & AndroidX Media3 teams** – for the playback magic
-* **mpv-compose** – [Maven package](https://central.sonatype.com/artifact/dev.marcelsoftware.mpvcompose/mpv-compose) that powers the Compose MPV integration
+* **MPV & AndroidX Media3 teams** – for the playback magic 
+* **mpv-compose** – [Maven package](https://central.sonatype.com/artifact/dev.marcelsoftware.mpvcompose/mpv-compose) by [@nitanmarcel](https://github.com/nitanmarcel) used for MPV integration in Compose.
