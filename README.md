@@ -71,8 +71,3 @@ Its goal is to offer a modern, minimal interface for browsing, streaming, and do
 - **mpv-compose** by [@nitanmarcel](https://central.sonatype.com/artifact/dev.marcelsoftware.mpvcompose/mpv-compose) – used for MPV integration in Compose  
 
 ---
-
-## 📄 License
-
-⚠️ No license file is currently present in this repository.  
-Please confirm licensing details with the project author before distribution or modification.
