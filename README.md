@@ -1,5 +1,19 @@
 # 
+## ☕ Support the Project
 
+
+
+<div align="center">
+If you find Void useful and want to support its development, consider buying me a coffee!
+
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-yellow?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/hritwikjohri)
+
+**Your support helps maintain and improve Void for everyone! 🚀**
+
+</div>
+
+---
 <div align="center">
 
 <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/screenshotsv2/file_00000000c81c622fab0899f003b3c52a.png" alt="Void Logo" width="160" height="160">
@@ -52,23 +66,25 @@ Built entirely with **Kotlin** and **Jetpack Compose**
 
 <div align="center">
 
-| Server Setup | Login | Quick Connect |
-|-------------|-------------|-------------|
-| <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/screenshotsv2/Screenshot_20250828_141556.png" alt="Server Setup" width="200" height="400"> | <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/screenshotsv2/Screenshot_20250828_141615.png" alt="Login" width="200" height="400"> | <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/screenshotsv2/Screenshot_20250828_142024.png" alt="Quick Connect" width="200" height="400"> |
+| Splash | Server Setup | Login |
+|--------|--------------|-------|
+| <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/alpha-v-0.2.1/02_Splash.png?raw=true" alt="Splash" width="200" height="400"> | <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/alpha-v-0.2.1/03_Server.png?raw=true" alt="Server Setup" width="200" height="400"> | <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/alpha-v-0.2.1/04_Login.png?raw=true" alt="Login" width="200" height="400"> |
 
-| Home Screen | Library View | Movie Details |
-|-------------|--------------|-------------|
-| <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/screenshots/Screenshot_20250818_011221.png?raw=true" alt="Home" width="200" height="400"> | <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/screenshots/Screenshot_20250818_011901.png?raw=true" alt="Library" width="200" height="400"> | <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/screenshots/Screenshot_20250818_012725.png?raw=true" alt="Movie Detail" width="200" height="400"> |
+| Home | Library | Series |
+|------|---------|--------|
+| <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/alpha-v-0.2.1/05_Home.png?raw=true" alt="Home" width="200" height="400"> | <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/alpha-v-0.2.1/06_Library.png?raw=true" alt="Library" width="200" height="400"> | <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/alpha-v-0.2.1/09_Series.png?raw=true" alt="Series" width="200" height="400"> |
 
-| Show Details | Season Details | Episode Details |
-|-------------|-------------|-------------|
-| <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/screenshots/Screenshot_20250818_012555.png?raw=true" alt="Show Detail" width="200" height="400"> | <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/screenshots/Screenshot_20250818_012433.png?raw=true" alt="Season Detail" width="200" height="400"> | <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/screenshots/Screenshot_20250818_012453.png?raw=true" alt="Episode Detail" width="200" height="400"> |
+| Category | Search | Season |
+|----------|--------|--------|
+| <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/alpha-v-0.2.1/07_Category.png?raw=true" alt="Category" width="200" height="400"> | <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/alpha-v-0.2.1/08_Search.png?raw=true" alt="Search" width="200" height="400"> | <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/alpha-v-0.2.1/10_Season.png?raw=true" alt="Season" width="200" height="400"> |
 
-| Library Browser | Search |
-|-------------|-------------|
-| <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/screenshotsv2/Screenshot_20250828_141305.png" alt="Library Browser" width="200" height="400"> | <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/screenshotsv2/Screenshot_20250828_140522.png" alt="Search" width="200" height="400"> |
+| Episode | Settings |
+|---------|----------|
+| <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/alpha-v-0.2.1/11_Episode.png?raw=true" alt="Episode" width="200" height="400"> | <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/alpha-v-0.2.1/12_Settings.png?raw=true" alt="Settings" width="200" height="400"> |
 
 </div>
+
+
 
 ---
 
@@ -231,20 +247,6 @@ limitations under the License.
 | [Hritwik Johri](https://github.com/hritwikjohri) | [KHazard](https://github.com/khazard) |
 |:---:|:---:|
 | Lead Developer | Contributor |
-
-</div>
-
----
-
-## ☕ Support the Project
-
-If you find Void useful and want to support its development, consider buying me a coffee!
-
-<div align="center">
-
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-yellow?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/hritwikjohri)
-
-**Your support helps maintain and improve Void for everyone! 🚀**
 
 </div>
 
