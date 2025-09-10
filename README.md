@@ -1,16 +1,4 @@
 # 
-## ☕ Support the Project
-
-
-
-<div align="center">
-If you find Void useful and want to support its development, consider buying me a coffee!
-
-
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-yellow?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/hritwikjohri)
-
-**Your support helps maintain and improve Void for everyone! 🚀**
-
 </div>
 
 ---
@@ -237,6 +225,20 @@ limitations under the License.
 - **Kotlin Coroutines** - Asynchronous programming
 - **Hilt** - Dependency injection
 - **Coil** - Image loading library
+
+---
+
+## ☕ Support the Project
+
+
+
+<div align="center">
+If you find Void useful and want to support its development, consider buying me a coffee!
+
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-yellow?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/hritwikjohri)
+
+**Your support helps maintain and improve Void for everyone! 🚀**
 
 ---
 
