@@ -5,8 +5,6 @@
 
 <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/alpha-v-0.2.1/Fugaz%20One_void.png" alt="Void Logo" width="160" height="160">
 
-# Void
-
 **A modern, minimal Android client for Jellyfin**
 
 Built entirely with **Kotlin** and **Jetpack Compose**
