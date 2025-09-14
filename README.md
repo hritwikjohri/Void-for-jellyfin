@@ -4,7 +4,7 @@
 ---
 <div align="center">
 
-<img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/screenshotsv2/file_00000000c81c622fab0899f003b3c52a.png" alt="Void Logo" width="160" height="160">
+<img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/alpha-v-0.2.1/Fugaz%20One_void.png" alt="Void Logo" width="160" height="160">
 
 # Void
 
