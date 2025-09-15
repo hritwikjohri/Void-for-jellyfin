@@ -183,32 +183,6 @@ For licensing inquiries, please contact: hritwikjohri@gmail.com
 
 ---
 
-## 🎯 Roadmap
-
-### v1.0 - Core Features
-- [x] Jellyfin server integration
-- [x] Basic media playback
-- [x] Library browsing
-- [x] Download functionality
-- [ ] User management improvements
-- [ ] Advanced filtering options
-
-### v1.1 - Enhanced Experience
-- [ ] Android TV support
-- [ ] Chromecast integration
-- [ ] Enhanced subtitle support
-- [ ] Playlist management
-- [ ] Continue watching sync
-
-### v1.2 - Advanced Features
-- [ ] Multi-server support
-- [ ] Advanced download management
-- [ ] Offline mode improvements
-- [ ] Performance optimizations
-- [ ] Accessibility improvements
-
----
-
 ## 🙏 Acknowledgments
 
 ### Special Thanks
