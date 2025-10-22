@@ -109,7 +109,7 @@ fun MediaActionButtons(
     var pendingSourceId by remember { mutableStateOf<String?>(null) }
     var showVersionDialog by remember { mutableStateOf(false) }
     var buttonColor by remember { mutableStateOf(Color(0xFF1976D2)) }
-    val canDownload = (!mediaItem.isFolder && mediaItem.type in listOf("Movie", "Episode")) || mediaItem.type == "Season"
+    val canDownload = (!mediaItem.isFolder && mediaItem.type in listOf("Movie", "Episode")) || mediaItem.type in listOf("Season", "Series")
     val context = LocalContext.current
     val serviceManager = remember {
         EntryPointAccessors.fromApplication(

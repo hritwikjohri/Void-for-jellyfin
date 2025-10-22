@@ -12,5 +12,6 @@ data class MediaDetailState(
     val specialFeatures: List<MediaItem> = emptyList(),
     val seasons: List<MediaItem>? = null,
     val episodes: List<MediaItem>? = null,
+    val episodesBySeasonId: Map<String, List<MediaItem>> = emptyMap(),
     val themeSong: ThemeSongState? = null
 )
