@@ -162,7 +162,7 @@ Built entirely with **Kotlin** and **Jetpack Compose**
 ## 📄 License
 
 ```
-GPL V3
+GPL V3 https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/LICENSE
 ```
 
 ---
