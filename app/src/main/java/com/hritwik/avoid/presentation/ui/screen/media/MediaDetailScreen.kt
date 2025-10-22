@@ -162,7 +162,7 @@ private fun MediaContent(
     val mediaType = mediaItem.type.lowercase()
     val showDownload = when (mediaType) {
         "series" -> false
-        "season" -> false
+        "season" -> true
         else -> true
     }
 
@@ -267,7 +267,7 @@ private fun MediaContent(
                             if (item.type == "Season" && state.episodes != null) {
                                 val sortedEpisodes = state.episodes.sortedBy { it.indexNumber ?: Int.MAX_VALUE }
                                 sortedEpisodes.forEach { episode ->
-                                    onDownloadClick(episode, request, mediaSourceId)
+                                    onDownloadClick(episode, request, episode.mediaSources.firstOrNull()?.id)
                                 }
                             } else {
                                 onDownloadClick(item, request, mediaSourceId)
