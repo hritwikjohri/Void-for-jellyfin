@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+
+    
+    <files-path
+        name="internal_files"
+        path="." />
+
+    
+    <cache-path
+        name="cache_files"
+        path="." />
+
+    
+    <files-path
+        name="downloads"
+        path="downloads/" />
+
+    
+    <cache-path
+        name="image_cache"
+        path="image_cache/" />
+
+    
+    <cache-path
+        name="video_cache"
+        path="video_cache/" />
+
+    
+    <cache-path
+        name="subtitles"
+        path="subtitles/" />
+
+    
+    <external-files-path
+        name="external_files"
+        path="." />
+
+    
+    <external-cache-path
+        name="external_cache"
+        path="." />
+
+    
+    <external-files-path
+        name="external_downloads"
+        path="Downloads/" />
+
+    
+    <external-files-path
+        name="external_media"
+        path="Media/" />
+
+    
+    <files-path
+        name="logs"
+        path="logs/" />
+
+    
+    <cache-path
+        name="temp_share"
+        path="temp_share/" />
+
+</paths>
