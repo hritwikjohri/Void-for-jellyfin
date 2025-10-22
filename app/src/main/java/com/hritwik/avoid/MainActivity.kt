@@ -14,7 +14,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.hritwik.avoid.data.local.PreferencesManager
@@ -42,7 +44,6 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("SourceLockedOrientationActivity")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        this.hideNavigationButtons()
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         configureSystemBars()
         enableEdgeToEdge()
@@ -83,6 +84,24 @@ class MainActivity : ComponentActivity() {
     private fun configureSystemBars() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
-        windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+
+        ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { _, insets ->
+            val tappableInsets = insets.getInsets(WindowInsetsCompat.Type.tappableElement())
+
+            val thresholdPx = (40 * resources.displayMetrics.density).toInt()
+            val has3ButtonNavigation = tappableInsets.bottom > thresholdPx
+
+            if (has3ButtonNavigation) {
+                this.hideNavigationButtons()
+                windowInsetsController.systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            } else {
+                windowInsetsController.systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+            }
+
+            insets
+        }
     }
 }
