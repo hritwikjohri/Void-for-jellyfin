@@ -204,9 +204,6 @@ class JellyseerRepositoryImpl @Inject constructor(
         if (username.isBlank()) {
             return NetworkResult.Error(AppError.Validation("Username is required"))
         }
-        if (password.isBlank()) {
-            return NetworkResult.Error(AppError.Validation("Password is required"))
-        }
 
         val service = runCatching { getService(baseUrl) }.getOrElse { error ->
             return NetworkResult.Error(AppError.Validation(error.message ?: "Invalid Jellyseerr base URL"), error)

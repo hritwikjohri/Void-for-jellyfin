@@ -516,15 +516,6 @@ class UserDataViewModel @Inject constructor(
                     }
                     return@launch
                 }
-                password.isBlank() -> {
-                    _jellyseerAuthState.update {
-                        it.copy(
-                            errorMessage = "Password is required",
-                            successMessage = null
-                        )
-                    }
-                    return@launch
-                }
             }
 
             _jellyseerAuthState.update { it.copy(isLoading = true, errorMessage = null, successMessage = null) }
