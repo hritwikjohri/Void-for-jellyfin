@@ -33,4 +33,7 @@ interface DownloadDao {
 
     @Query("UPDATE downloads SET queueIndex = :queueIndex, priority = :priority, addedAt = :addedAt WHERE mediaId = :mediaId")
     suspend fun updateQueueInfo(mediaId: String, queueIndex: Int, priority: Int, addedAt: Long)
+
+    @Query("DELETE FROM downloads")
+    suspend fun deleteAllDownloads()
 }

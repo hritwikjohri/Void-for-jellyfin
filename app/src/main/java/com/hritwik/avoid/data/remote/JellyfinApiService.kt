@@ -12,6 +12,7 @@ import com.hritwik.avoid.data.remote.dto.auth.UserInfo
 import com.hritwik.avoid.data.remote.dto.library.AllThemeMediaResultDto
 import com.hritwik.avoid.data.remote.dto.library.BaseItemDto
 import com.hritwik.avoid.data.remote.dto.library.LibraryResponse
+import com.hritwik.avoid.data.remote.dto.library.PersonDto
 import com.hritwik.avoid.data.remote.dto.library.UserDataDto
 import com.hritwik.avoid.data.remote.dto.playback.PlaybackProgressRequest
 import com.hritwik.avoid.data.remote.dto.playback.PlaybackStartRequest
@@ -25,6 +26,9 @@ import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
+import java.text.Normalizer
 
 interface JellyfinApiService {
 
@@ -95,6 +99,14 @@ interface JellyfinApiService {
         @Query("EnableImageTypes") enableImageTypes: String? = null,
         @Header("X-Emby-Authorization") authorization: String
     ): LibraryResponse
+
+    @GET("Items/{itemId}/Credits")
+    suspend fun getItemCredits(
+        @Path("itemId") itemId: String,
+        @Query("UserId") userId: String,
+        @Query("EnableImageTypes") enableImageTypes: String = "Primary",
+        @Header("X-Emby-Authorization") authorization: String
+    ): List<PersonDto>
 
     @GET("Users/{userId}/Items/Latest")
     suspend fun getLatestItems(
@@ -307,8 +319,48 @@ interface JellyfinApiService {
             version: String = BuildConfig.VERSION_NAME,
             token: String? = null
         ): String {
-            val tokenPart = if (token != null) ", Token=\"$token\"" else ""
-            return "MediaBrowser Client=\"$client\", Device=\"$device\", DeviceId=\"$deviceId\", Version=\"$version\"$tokenPart"
+            val safeClient = sanitizeHeaderValue(client, "Void")
+            val safeDevice = sanitizeHeaderValue(device, "Android")
+            val safeDeviceId = sanitizeHeaderValue(deviceId, "VoidDevice")
+            val safeVersion = sanitizeHeaderValue(version, BuildConfig.VERSION_NAME)
+            val safeToken = token?.let { sanitizeHeaderValue(it) }
+
+            val tokenPart = if (!safeToken.isNullOrEmpty()) ", Token=\"$safeToken\"" else ""
+            return "MediaBrowser Client=\"$safeClient\", Device=\"$safeDevice\", DeviceId=\"$safeDeviceId\", Version=\"$safeVersion\"$tokenPart"
+        }
+
+        private fun sanitizeHeaderValue(value: String, fallback: String? = null): String {
+            val processed = value
+                .replace('"', '\'')
+                .trim()
+
+            printableAsciiOrNull(processed)?.let { return it }
+
+            val encoded = encodeForHeader(processed)
+            if (encoded.isNotEmpty()) return encoded
+
+            val fallbackValue = fallback?.replace('"', '\'')?.trim().orEmpty()
+            if (fallbackValue.isEmpty()) return ""
+
+            printableAsciiOrNull(fallbackValue)?.let { return it }
+
+            return encodeForHeader(fallbackValue)
+        }
+
+        private fun printableAsciiOrNull(value: String): String? {
+            if (value.isEmpty()) return null
+            return if (value.all { it.code in 0x20..0x7E }) value else null
+        }
+
+        private fun encodeForHeader(value: String): String {
+            if (value.isEmpty()) return ""
+            val normalized = Normalizer.normalize(value, Normalizer.Form.NFC)
+            return try {
+                URLEncoder.encode(normalized, StandardCharsets.UTF_8.name())
+                    .replace("+", "%20")
+            } catch (_: Exception) {
+                ""
+            }
         }
     }
 }

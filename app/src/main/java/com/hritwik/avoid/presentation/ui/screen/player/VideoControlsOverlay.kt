@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.VideoSettings
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -95,16 +94,20 @@ fun VideoControlsOverlay(
                 onDismiss = { showSpeedDialog = false }
             )
         }
-        
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.TopStart)
                 .padding(calculateRoundedValue(16).sdp)
-                .statusBarsPadding(),
+                .statusBarsPadding()
+                .navigationBarsPadding(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onBackClick) {
+            IconButton(
+                onClick = onBackClick,
+                modifier = Modifier.padding(start = calculateRoundedValue(4).sdp)
+            ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
@@ -201,11 +204,10 @@ fun VideoControlsOverlay(
                 Icon(
                     imageVector = Icons.Default.SkipPrevious,
                     contentDescription = "Next episode",
-                    tint = if (onPlayPrevious == null) Color.Gray else Color.White,
+                    tint = if (onPlayPrevious == null) Color.Transparent else Color.White,
                     modifier = Modifier.size(calculateRoundedValue(36).sdp)
                 )
             }
-
 
             IconButton(
                 onClick = onSkipBackward,
@@ -266,11 +268,10 @@ fun VideoControlsOverlay(
                 Icon(
                     imageVector = Icons.Default.SkipNext,
                     contentDescription = "Next episode",
-                    tint = if (onPlayNext == null) Color.Gray else Color.White,
+                    tint = if (onPlayNext == null) Color.Transparent else Color.White,
                     modifier = Modifier.size(calculateRoundedValue(36).sdp)
                 )
             }
-
         }
 
         Column(

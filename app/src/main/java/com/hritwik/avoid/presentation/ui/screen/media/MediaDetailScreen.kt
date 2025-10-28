@@ -1,5 +1,6 @@
 package com.hritwik.avoid.presentation.ui.screen.media
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -20,17 +21,20 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hritwik.avoid.domain.model.download.DownloadRequest
 import com.hritwik.avoid.domain.model.library.MediaItem
+import com.hritwik.avoid.domain.model.media.MediaStream
 import com.hritwik.avoid.domain.model.playback.PlaybackInfo
 import com.hritwik.avoid.presentation.ui.components.common.ErrorMessage
 import com.hritwik.avoid.presentation.ui.components.common.ThemeSongPlayer
 import com.hritwik.avoid.presentation.ui.components.common.states.LoadingState
 import com.hritwik.avoid.presentation.ui.components.layout.SectionHeader
 import com.hritwik.avoid.presentation.ui.components.media.EpisodeCard
+import com.hritwik.avoid.presentation.ui.components.media.DownloadScope
 import com.hritwik.avoid.presentation.ui.components.media.MediaActionButtons
 import com.hritwik.avoid.presentation.ui.components.media.MediaCardType
 import com.hritwik.avoid.presentation.ui.components.media.MediaDetailsSection
@@ -45,11 +49,14 @@ import com.hritwik.avoid.presentation.ui.theme.PrimaryText
 import com.hritwik.avoid.presentation.viewmodel.auth.AuthServerViewModel
 import com.hritwik.avoid.presentation.viewmodel.media.MediaViewModel
 import com.hritwik.avoid.presentation.viewmodel.user.UserDataViewModel
+import com.hritwik.avoid.utils.extensions.formatFileSize
+import com.hritwik.avoid.utils.extensions.formatRuntime
 import com.hritwik.avoid.utils.extensions.getBackdropUrl
 import com.hritwik.avoid.utils.extensions.getPosterUrl
 import com.hritwik.avoid.utils.helpers.GestureHelper.swipeBack
 import com.hritwik.avoid.utils.helpers.calculateRoundedValue
 import ir.kaaveh.sdpcompose.sdp
+import java.util.Locale
 
 @Composable
 fun MediaDetailScreen(
@@ -144,6 +151,96 @@ fun MediaDetailScreen(
     }
 }
 
+private fun buildMediaAdditionalDetails(mediaItem: MediaItem): List<Pair<String, String>> {
+    val details = mutableListOf<Pair<String, String>>()
+    val primarySource = mediaItem.getPrimaryMediaSource()
+
+    val runtimeTicks = mediaItem.runTimeTicks ?: primarySource?.runTimeTicks
+    runtimeTicks?.takeIf { it > 0 }?.let { ticks ->
+        details += "Length" to ticks.formatRuntime()
+    }
+
+    primarySource?.bitrate?.takeIf { it > 0 }?.let { bitrate ->
+        details += "Bit Rate" to formatBitrate(bitrate)
+    }
+
+    primarySource?.defaultVideoStream?.frameRate?.takeIf { it > 0f }?.let { frameRate ->
+        details += "Frame Rate" to formatFrameRate(frameRate)
+    }
+
+    primarySource?.defaultAudioStream?.let { audioStream ->
+        formatAudioChannels(audioStream)?.let { details += "Channels" to it }
+    }
+
+    primarySource?.container?.let { container ->
+        if (container.isNotBlank()) {
+            details += "Format" to container.uppercase(Locale.US)
+        }
+    }
+
+    primarySource?.size?.takeIf { it > 0 }?.let { size ->
+        details += "Size" to size.formatFileSize()
+    }
+
+    return details
+}
+
+private fun filterEpisodesForScope(
+    episodes: List<MediaItem>,
+    scope: DownloadScope,
+    playedItems: Set<String>,
+): List<MediaItem> {
+    val sortedEpisodes = episodes.sortedBy { it.indexNumber ?: Int.MAX_VALUE }
+    return when (scope) {
+        DownloadScope.ALL -> sortedEpisodes
+        DownloadScope.UNWATCHED -> sortedEpisodes.filter { episode ->
+            val isPlayed = playedItems.contains(episode.id) || episode.userData?.played == true
+            !isPlayed
+        }
+    }
+}
+
+private fun formatBitrate(bitrate: Int): String {
+    val units = arrayOf("bps", "Kbps", "Mbps", "Gbps")
+    var value = bitrate.toDouble()
+    var unitIndex = 0
+    while (value >= 1000 && unitIndex < units.lastIndex) {
+        value /= 1000
+        unitIndex++
+    }
+
+    val formatted = if (unitIndex == 0) {
+        String.format(Locale.US, "%.0f", value)
+    } else {
+        String.format(Locale.US, "%.1f", value)
+    }
+
+    return "$formatted ${units[unitIndex]}"
+}
+
+private fun formatFrameRate(frameRate: Float): String {
+    val formatted = String.format(Locale.US, "%.3f", frameRate).trimEnd('0').trimEnd('.')
+    return "$formatted fps"
+}
+
+private fun formatAudioChannels(audioStream: MediaStream): String? {
+    val codec = audioStream.codec?.takeIf { it.isNotBlank() }?.uppercase(Locale.US)
+    val layout = audioStream.channelLayout?.takeIf { it.isNotBlank() }?.uppercase(Locale.US)
+    val channelCount = audioStream.channels?.takeIf { it > 0 }
+
+    val channelDescription = when {
+        layout != null -> layout
+        channelCount != null -> if (channelCount == 1) "1 channel" else "$channelCount channels"
+        else -> null
+    }
+
+    return when {
+        channelDescription != null && codec != null -> "$channelDescription ($codec)"
+        channelDescription != null -> channelDescription
+        else -> codec
+    }
+}
+
 @Composable
 private fun MediaContent(
     modifier: Modifier = Modifier,
@@ -162,9 +259,9 @@ private fun MediaContent(
     val mediaType = mediaItem.type.lowercase()
     val showDownload = when (mediaType) {
         "series" -> false
-        "season" -> false
         else -> true
     }
+    val context = LocalContext.current
 
     val config = when (mediaType) {
         "movie" -> MediaConfig(
@@ -219,6 +316,23 @@ private fun MediaContent(
         )
     }
 
+    val detailSource = if (mediaItem.mediaSources.isNotEmpty()) {
+        mediaItem
+    } else {
+        val playbackItem = state.playbackItem
+        if (playbackItem != null && playbackItem.id == mediaItem.id && playbackItem.mediaSources.isNotEmpty()) {
+            playbackItem
+        } else {
+            mediaItem
+        }
+    }
+
+    val additionalDetails = if (mediaType == "movie" || mediaType == "episode") {
+        buildMediaAdditionalDetails(detailSource)
+    } else {
+        emptyList()
+    }
+
     var highlightedEpisodeId by remember(mediaItem.id) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(initialEpisodeId, mediaItem.id) {
@@ -263,14 +377,68 @@ private fun MediaContent(
                         showDownload = showDownload,
                         playButtonSize = config.playButtonSize,
                         onPlayClick = onPlayClick,
-                        onDownloadClick = { item, request, mediaSourceId ->
-                            if (item.type == "Season" && state.episodes != null) {
-                                val sortedEpisodes = state.episodes.sortedBy { it.indexNumber ?: Int.MAX_VALUE }
-                                sortedEpisodes.forEach { episode ->
-                                    onDownloadClick(episode, request, mediaSourceId)
+                        onDownloadClick = { item, request, mediaSourceId, scope ->
+                            when {
+                                item.type == "Season" && !state.episodes.isNullOrEmpty() -> {
+                                    val episodesToDownload = filterEpisodesForScope(
+                                        state.episodes,
+                                        scope,
+                                        playedItems,
+                                    )
+                                    if (episodesToDownload.isEmpty()) {
+                                        if (scope == DownloadScope.UNWATCHED) {
+                                            Toast.makeText(
+                                                context,
+                                                "All episodes are already watched.",
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        } else {
+                                            onDownloadClick(item, request, mediaSourceId)
+                                        }
+                                    } else {
+                                        episodesToDownload.forEach { episode ->
+                                            onDownloadClick(
+                                                episode,
+                                                request,
+                                                episode.mediaSources.firstOrNull()?.id,
+                                            )
+                                        }
+                                    }
                                 }
-                            } else {
-                                onDownloadClick(item, request, mediaSourceId)
+
+                                item.type == "Series" && !state.seasons.isNullOrEmpty() && state.episodesBySeasonId.isNotEmpty() -> {
+                                    val sortedSeasons = state.seasons.sortedBy { it.indexNumber ?: Int.MAX_VALUE }
+                                    var started = false
+                                    sortedSeasons.forEach { season ->
+                                        val episodes = state.episodesBySeasonId[season.id] ?: emptyList()
+                                        val episodesToDownload = filterEpisodesForScope(
+                                            episodes,
+                                            scope,
+                                            playedItems,
+                                        )
+                                        episodesToDownload.forEach { episode ->
+                                            onDownloadClick(
+                                                episode,
+                                                request,
+                                                episode.mediaSources.firstOrNull()?.id,
+                                            )
+                                            started = true
+                                        }
+                                    }
+                                    if (!started) {
+                                        if (scope == DownloadScope.UNWATCHED) {
+                                            Toast.makeText(
+                                                context,
+                                                "No unwatched episodes available to download.",
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        }
+                                    }
+                                }
+
+                                else -> {
+                                    onDownloadClick(item, request, mediaSourceId)
+                                }
                             }
                         },
                         modifier = Modifier.padding(horizontal = calculateRoundedValue(16).sdp)
@@ -304,6 +472,7 @@ private fun MediaContent(
 
                     MediaDetailsSection(
                         mediaItem = mediaItem,
+                        additionalDetails = additionalDetails,
                         episodeCount = episodeCount,
                         modifier = Modifier.padding(horizontal = calculateRoundedValue(16).sdp)
                     )

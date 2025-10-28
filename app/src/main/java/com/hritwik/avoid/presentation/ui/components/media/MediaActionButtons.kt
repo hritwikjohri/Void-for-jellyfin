@@ -49,8 +49,9 @@ import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
-import com.hritwik.avoid.data.download.DownloadService.DownloadStatus
 import com.hritwik.avoid.core.ServiceManagerEntryPoint
+import com.hritwik.avoid.data.download.DownloadService.DownloadInfo
+import com.hritwik.avoid.data.download.DownloadService.DownloadStatus
 import com.hritwik.avoid.domain.model.download.DownloadCodec
 import com.hritwik.avoid.domain.model.download.DownloadQuality
 import com.hritwik.avoid.domain.model.download.DownloadRequest
@@ -58,6 +59,8 @@ import com.hritwik.avoid.domain.model.library.MediaItem
 import com.hritwik.avoid.domain.model.media.PlaybackOptions
 import com.hritwik.avoid.domain.model.playback.PlaybackInfo
 import com.hritwik.avoid.presentation.ui.components.dialogs.AudioTrackDialog
+import com.hritwik.avoid.presentation.ui.components.dialogs.SelectionDialog
+import com.hritwik.avoid.presentation.ui.components.dialogs.SelectionItem
 import com.hritwik.avoid.presentation.ui.components.dialogs.SubtitleDialog
 import com.hritwik.avoid.presentation.ui.components.dialogs.VersionSelectionDialog
 import com.hritwik.avoid.presentation.ui.components.dialogs.VideoQualityDialog
@@ -73,6 +76,11 @@ import ir.kaaveh.sdpcompose.sdp
 
 private const val RESUME_THRESHOLD = 10_000_000L
 
+enum class DownloadScope {
+    ALL,
+    UNWATCHED,
+}
+
 @OptIn(UnstableApi::class)
 @Composable
 fun MediaActionButtons(
@@ -82,7 +90,7 @@ fun MediaActionButtons(
     playbackItem: MediaItem? = null,
     shareButton: Boolean = false,
     onPlayClick: (PlaybackInfo) -> Unit,
-    onDownloadClick: (MediaItem, DownloadRequest, String?) -> Unit,
+    onDownloadClick: (MediaItem, DownloadRequest, String?, DownloadScope) -> Unit,
     playButtonSize: Int = 72,
     showDownload: Boolean = true,
     showMediaInfo: Boolean = true,
@@ -100,16 +108,38 @@ fun MediaActionButtons(
     val downloadStatus by userDataViewModel.downloadStatus(downloadId).collectAsStateWithLifecycle()
     val downloadSettings by userDataViewModel.downloadSettings.collectAsStateWithLifecycle()
     val downloadsState by userDataViewModel.downloads.collectAsStateWithLifecycle()
-    val downloadProgress = downloadsState.find { it.mediaSourceId == downloadId || it.mediaItem.id == downloadId }?.progress ?: 0f
+    val activeDownloadInfo = downloadsState.find {
+        it.mediaSourceId == downloadId || it.mediaItem.id == downloadId
+    }
+    val isStaticDownload = activeDownloadInfo?.request?.static == true
+    val isTranscodeDownload = activeDownloadInfo?.request?.static == false
+    val downloadProgress = if (isStaticDownload) activeDownloadInfo.progress else 0f
     val isFavorite by userDataViewModel.isFavorite(mediaItem.id).collectAsStateWithLifecycle()
     val isPlayed by userDataViewModel.isPlayed(mediaItem.id).collectAsStateWithLifecycle()
     val currentQuality = downloadSettings.downloadQuality
     val selectedCodec = downloadSettings.downloadCodec
     var showDownloadMenu by remember { mutableStateOf(false) }
+    var showScopeDialog by remember { mutableStateOf(false) }
     var pendingSourceId by remember { mutableStateOf<String?>(null) }
     var showVersionDialog by remember { mutableStateOf(false) }
+    var pendingScope by remember { mutableStateOf<DownloadScope?>(null) }
     var buttonColor by remember { mutableStateOf(Color(0xFF1976D2)) }
-    val canDownload = (!mediaItem.isFolder && mediaItem.type in listOf("Movie", "Episode")) || mediaItem.type == "Season"
+    val canDownload = (!mediaItem.isFolder && mediaItem.type in listOf("Movie", "Episode")) || mediaItem.type in listOf("Season", "Series")
+    val isSeason = mediaItem.type.equals("Season", ignoreCase = true)
+    val seasonDownloads = if (isSeason) {
+        downloadsState.filter { download ->
+            val item = download.mediaItem
+            item.type.equals("Episode", ignoreCase = true) && item.seasonId == mediaItem.id
+        }
+    } else {
+        emptyList()
+    }
+    val seasonDownloadStatus = if (isSeason) {
+        computeSeasonDownloadStatus(seasonDownloads, mediaItem.childCount)
+    } else {
+        null
+    }
+    val effectiveDownloadStatus = seasonDownloadStatus ?: downloadStatus.takeUnless { isSeason }
     val context = LocalContext.current
     val serviceManager = remember {
         EntryPointAccessors.fromApplication(
@@ -304,70 +334,122 @@ fun MediaActionButtons(
                         IconButton(
                             onClick = {
                                 val sourceId = playbackState.playbackOptions.selectedMediaSource?.id
-                                when (downloadStatus) {
+                                when (effectiveDownloadStatus) {
                                     null, DownloadStatus.FAILED -> {
                                         pendingSourceId = sourceId ?: downloadId
-                                        showDownloadMenu = true
+                                        if (isSeason || mediaItem.type.equals("Series", ignoreCase = true)) {
+                                            pendingScope = null
+                                            showScopeDialog = true
+                                        } else {
+                                            showDownloadMenu = true
+                                        }
                                     }
-                                    DownloadStatus.QUEUED, DownloadStatus.DOWNLOADING -> serviceManager.pauseDownload(downloadId)
-                                    DownloadStatus.PAUSED -> serviceManager.resumeDownload(downloadId)
-                                    DownloadStatus.COMPLETED -> serviceManager.cancelDownload(downloadId)
+
+                                    DownloadStatus.QUEUED, DownloadStatus.DOWNLOADING -> {
+                                        if (isSeason) {
+                                            pauseSeasonDownloads(seasonDownloads, serviceManager)
+                                        } else {
+                                            serviceManager.pauseDownload(downloadId)
+                                        }
+                                    }
+
+                                    DownloadStatus.PAUSED -> {
+                                        if (isSeason) {
+                                            resumeSeasonDownloads(seasonDownloads, serviceManager)
+                                        } else {
+                                            serviceManager.resumeDownload(downloadId)
+                                        }
+                                    }
+
+                                    DownloadStatus.COMPLETED -> {
+                                        if (isSeason) {
+                                            cancelSeasonDownloads(seasonDownloads, serviceManager)
+                                        } else {
+                                            serviceManager.cancelDownload(downloadId)
+                                        }
+                                    }
                                 }
                             }
                         ) {
-                        val icon = when (downloadStatus) {
-                            null -> Icons.Outlined.Download
-                            DownloadStatus.QUEUED -> Icons.Filled.Schedule
-                            DownloadStatus.DOWNLOADING -> Icons.Filled.Pause
-                            DownloadStatus.PAUSED -> Icons.Filled.PlayArrow
-                            DownloadStatus.COMPLETED -> Icons.Filled.Delete
-                            DownloadStatus.FAILED -> Icons.Outlined.Download
-                        }
-                        val description = when (downloadStatus) {
-                            null -> "Download"
-                            DownloadStatus.QUEUED -> "Queued"
-                            DownloadStatus.DOWNLOADING -> "Pause"
-                            DownloadStatus.PAUSED -> "Resume"
-                            DownloadStatus.COMPLETED -> "Downloaded"
-                            DownloadStatus.FAILED -> "Download Failed"
-                        }
-
-                        Box(contentAlignment = Alignment.Center) {
-                            if (downloadStatus in listOf(DownloadStatus.QUEUED, DownloadStatus.DOWNLOADING, DownloadStatus.PAUSED)) {
-                                if (downloadStatus == DownloadStatus.QUEUED) {
-                                    CircularProgressIndicator(modifier = Modifier.matchParentSize(), strokeWidth = 2.dp)
-                                } else {
-                                    CircularProgressIndicator(
-                                    progress = { downloadProgress / 100f },
-                                    modifier = Modifier.matchParentSize(),
-                                    color = ProgressIndicatorDefaults.circularColor,
-                                    strokeWidth = 2.dp,
-                                    trackColor = ProgressIndicatorDefaults.circularIndeterminateTrackColor,
-                                    strokeCap = ProgressIndicatorDefaults.CircularDeterminateStrokeCap,
-                                    )
+                            val icon = when (effectiveDownloadStatus) {
+                                null -> Icons.Outlined.Download
+                                DownloadStatus.QUEUED -> Icons.Filled.Schedule
+                                DownloadStatus.DOWNLOADING -> Icons.Filled.Pause
+                                DownloadStatus.PAUSED -> Icons.Filled.PlayArrow
+                                DownloadStatus.COMPLETED -> Icons.Filled.Delete
+                                DownloadStatus.FAILED -> Icons.Outlined.Download
+                            }
+                            val description = when (effectiveDownloadStatus) {
+                                null -> when {
+                                    isSeason -> "Download season"
+                                    mediaItem.type.equals("Series", ignoreCase = true) -> "Download series"
+                                    else -> "Download"
                                 }
+
+                                DownloadStatus.QUEUED -> "Queued"
+                                DownloadStatus.DOWNLOADING -> if (isSeason) "Pause season downloads" else "Pause"
+                                DownloadStatus.PAUSED -> if (isSeason) "Resume season downloads" else "Resume"
+                                DownloadStatus.COMPLETED -> if (isSeason) "Delete season downloads" else "Downloaded"
+                                DownloadStatus.FAILED -> "Download Failed"
                             }
 
-                            Icon(
-                                imageVector = icon,
-                                contentDescription = description,
-                                tint = PrimaryText,
-                                modifier = Modifier.size(calculateRoundedValue(24).sdp)
-                            )
-                        }
+                            Box(contentAlignment = Alignment.Center) {
+                                if (effectiveDownloadStatus in listOf(
+                                        DownloadStatus.QUEUED,
+                                        DownloadStatus.DOWNLOADING,
+                                        DownloadStatus.PAUSED,
+                                    )
+                                ) {
+                                    when {
+                                        effectiveDownloadStatus == DownloadStatus.QUEUED -> {
+                                            CircularProgressIndicator(modifier = Modifier.matchParentSize(), strokeWidth = 2.dp)
+                                        }
+
+                                        effectiveDownloadStatus == DownloadStatus.DOWNLOADING && !isSeason && isTranscodeDownload -> {
+                                            CircularProgressIndicator(modifier = Modifier.matchParentSize(), strokeWidth = 2.dp)
+                                        }
+
+                                        !isSeason && isStaticDownload -> {
+                                            CircularProgressIndicator(
+                                                progress = { downloadProgress / 100f },
+                                                modifier = Modifier.matchParentSize(),
+                                                color = ProgressIndicatorDefaults.circularColor,
+                                                strokeWidth = 2.dp,
+                                                trackColor = ProgressIndicatorDefaults.circularIndeterminateTrackColor,
+                                                strokeCap = ProgressIndicatorDefaults.CircularDeterminateStrokeCap,
+                                            )
+                                        }
+
+                                        isSeason -> {
+                                            CircularProgressIndicator(modifier = Modifier.matchParentSize(), strokeWidth = 2.dp)
+                                        }
+                                    }
+                                }
+
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = description,
+                                    tint = PrimaryText,
+                                    modifier = Modifier.size(calculateRoundedValue(24).sdp)
+                                )
+                            }
                         }
 
                         DropdownMenu(
                             expanded = showDownloadMenu,
                             onDismissRequest = {
                                 showDownloadMenu = false
+                                pendingScope = null
                                 pendingSourceId = null
                             }
                         ) {
                             DropdownMenuItem(
                                 text = {
                                     Column {
-                                        Text("Original download", style = MaterialTheme.typography.bodyMedium)
+                                        Text(
+                                            if (isSeason) "Download season" else "Original download",
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
                                         Text(
                                             "${currentQuality.label} • ${selectedCodec.label}",
                                             style = MaterialTheme.typography.labelSmall,
@@ -379,13 +461,18 @@ fun MediaActionButtons(
                                     showDownloadMenu = false
                                     val source = pendingSourceId
                                     pendingSourceId = null
-                                    onDownloadClick(mediaItem, originalRequest, source)
+                                    val scope = pendingScope ?: DownloadScope.ALL
+                                    pendingScope = null
+                                    onDownloadClick(mediaItem, originalRequest, source, scope)
                                 }
                             )
                             DropdownMenuItem(
                                 text = {
                                     Column {
-                                        Text("1080p transcode", style = MaterialTheme.typography.bodyMedium)
+                                        Text(
+                                            if (isSeason) "Season 1080p transcode" else "1080p transcode",
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
                                         Text(
                                             "1920x1080 • 10 Mbps",
                                             style = MaterialTheme.typography.labelSmall,
@@ -397,13 +484,18 @@ fun MediaActionButtons(
                                     showDownloadMenu = false
                                     val source = pendingSourceId
                                     pendingSourceId = null
-                                    onDownloadClick(mediaItem, hd1080Request, source)
+                                    val scope = pendingScope ?: DownloadScope.ALL
+                                    pendingScope = null
+                                    onDownloadClick(mediaItem, hd1080Request, source, scope)
                                 }
                             )
                             DropdownMenuItem(
                                 text = {
                                     Column {
-                                        Text("720p transcode", style = MaterialTheme.typography.bodyMedium)
+                                        Text(
+                                            if (isSeason) "Season 720p transcode" else "720p transcode",
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
                                         Text(
                                             "1280x720 • 6 Mbps",
                                             style = MaterialTheme.typography.labelSmall,
@@ -415,14 +507,31 @@ fun MediaActionButtons(
                                     showDownloadMenu = false
                                     val source = pendingSourceId
                                     pendingSourceId = null
-                                    onDownloadClick(mediaItem, hd720Request, source)
+                                    val scope = pendingScope ?: DownloadScope.ALL
+                                    pendingScope = null
+                                    onDownloadClick(mediaItem, hd720Request, source, scope)
                                 }
                             )
                         }
                     }
                 }
 
-                if(shareButton){
+                if (showScopeDialog) {
+                    DownloadScopeDialog(
+                        onSelect = { scope ->
+                            pendingScope = scope
+                            showScopeDialog = false
+                            showDownloadMenu = true
+                        },
+                        onDismiss = {
+                            showScopeDialog = false
+                            pendingScope = null
+                            pendingSourceId = null
+                        }
+                    )
+                }
+
+                if (shareButton) {
                     IconButton(
                         onClick = {
                             val itemForPlayback = playbackItemForActions ?: return@IconButton
@@ -559,6 +668,77 @@ fun MediaActionButtons(
                 selectedSubtitleStream = playbackState.playbackOptions.selectedSubtitleStream,
                 onSubtitleSelected = { videoPlaybackViewModel.selectSubtitleStream(it) },
                 onDismiss = { videoPlaybackViewModel.hideSubtitleDialog() }
+            )
+        }
+    }
+}
+
+private fun computeSeasonDownloadStatus(
+    downloads: List<DownloadInfo>,
+    totalEpisodes: Int?,
+): DownloadStatus? {
+    if (downloads.isEmpty()) return null
+
+    val completed = downloads.count { it.status == DownloadStatus.COMPLETED }
+    val inProgress = downloads.any { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.QUEUED }
+    val paused = downloads.any { it.status == DownloadStatus.PAUSED }
+
+    return when {
+        totalEpisodes != null && totalEpisodes > 0 && completed >= totalEpisodes -> DownloadStatus.COMPLETED
+        inProgress -> DownloadStatus.DOWNLOADING
+        paused -> DownloadStatus.PAUSED
+        else -> null
+    }
+}
+
+private fun pauseSeasonDownloads(downloads: List<DownloadInfo>, serviceManager: com.hritwik.avoid.core.ServiceManager) {
+    downloads
+        .filter { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.QUEUED }
+        .mapNotNull { it.resolveDownloadId() }
+        .distinct()
+        .forEach { id -> serviceManager.pauseDownload(id) }
+}
+
+private fun resumeSeasonDownloads(downloads: List<DownloadInfo>, serviceManager: com.hritwik.avoid.core.ServiceManager) {
+    downloads
+        .filter { it.status == DownloadStatus.PAUSED }
+        .mapNotNull { it.resolveDownloadId() }
+        .distinct()
+        .forEach { id -> serviceManager.resumeDownload(id) }
+}
+
+private fun cancelSeasonDownloads(downloads: List<DownloadInfo>, serviceManager: com.hritwik.avoid.core.ServiceManager) {
+    downloads
+        .mapNotNull { it.resolveDownloadId() }
+        .distinct()
+        .forEach { id -> serviceManager.cancelDownload(id) }
+}
+
+private fun DownloadInfo.resolveDownloadId(): String? {
+    return mediaSourceId ?: mediaItem.mediaSources.firstOrNull()?.id ?: mediaItem.id
+}
+
+@Composable
+private fun DownloadScopeDialog(
+    onSelect: (DownloadScope) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    SelectionDialog(
+        title = "Download episodes",
+        onDismiss = onDismiss
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(calculateRoundedValue(8).sdp)) {
+            SelectionItem(
+                title = "Download all episodes",
+                subtitle = "Includes watched episodes",
+                isSelected = true,
+                onClick = { onSelect(DownloadScope.ALL) }
+            )
+            SelectionItem(
+                title = "Download unwatched only",
+                subtitle = "Skips already watched episodes",
+                isSelected = false,
+                onClick = { onSelect(DownloadScope.UNWATCHED) }
             )
         }
     }

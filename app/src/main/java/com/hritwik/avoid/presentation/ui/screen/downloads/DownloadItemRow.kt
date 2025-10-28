@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ProgressIndicatorDefaults
@@ -26,15 +27,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
-import com.hritwik.avoid.data.download.DownloadService
 import com.hritwik.avoid.data.download.DownloadService.DownloadInfo
 import com.hritwik.avoid.presentation.ui.components.common.EmptyItem
 import com.hritwik.avoid.presentation.ui.components.common.NetworkImage
 import com.hritwik.avoid.utils.constants.ApiConstants
+import com.hritwik.avoid.utils.helpers.DownloadDisplayFormatter
 import com.hritwik.avoid.utils.helpers.LocalImageHelper
 import com.hritwik.avoid.utils.helpers.calculateRoundedValue
 import ir.kaaveh.sdpcompose.sdp
@@ -45,13 +47,18 @@ fun DownloadItemRow(
     downloadInfo: DownloadInfo,
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {},
-    onDelete: () -> Unit = {},
-    isActive: Boolean = false
+    isActive: Boolean = false,
+    selectionEnabled: Boolean = false,
+    isSelected: Boolean = false,
+    onSelectionChange: (Boolean) -> Unit = {}
 ) {
     val imageHelper = LocalImageHelper.current
     val mediaItem = downloadInfo.mediaItem
     val isEpisode = mediaItem.type == ApiConstants.ITEM_TYPE_EPISODE
     val aspectRatio = if (isEpisode) 16f / 9f else 2f / 3f
+    val context = LocalContext.current
+    val progressFraction = DownloadDisplayFormatter.progressFraction(downloadInfo)
+    val showIndeterminateProgress = DownloadDisplayFormatter.isProgressIndeterminate(downloadInfo)
 
     val imageUrl = remember(downloadInfo.serverUrl, mediaItem.id, mediaItem.primaryImageTag, mediaItem.backdropImageTags) {
         if (isEpisode) {
@@ -94,21 +101,31 @@ fun DownloadItemRow(
                     EmptyItem()
                 }
 
-                if (isActive && downloadInfo.progress > 0) {
+                if (isActive && (progressFraction != null || showIndeterminateProgress)) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(MaterialTheme.colorScheme.background.copy(alpha = 0.7f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator(
-                        progress = { downloadInfo.progress / 100f },
-                        modifier = Modifier.size(32.dp),
-                        color = ProgressIndicatorDefaults.circularColor,
-                        strokeWidth = ProgressIndicatorDefaults.CircularStrokeWidth,
-                        trackColor = ProgressIndicatorDefaults.circularIndeterminateTrackColor,
-                        strokeCap = ProgressIndicatorDefaults.CircularDeterminateStrokeCap,
-                        )
+                        if (progressFraction != null) {
+                            CircularProgressIndicator(
+                                progress = { progressFraction },
+                                modifier = Modifier.size(32.dp),
+                                color = ProgressIndicatorDefaults.circularColor,
+                                strokeWidth = ProgressIndicatorDefaults.CircularStrokeWidth,
+                                trackColor = ProgressIndicatorDefaults.circularIndeterminateTrackColor,
+                                strokeCap = ProgressIndicatorDefaults.CircularDeterminateStrokeCap,
+                            )
+                        } else {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(32.dp),
+                                color = ProgressIndicatorDefaults.circularColor,
+                                strokeWidth = ProgressIndicatorDefaults.CircularStrokeWidth,
+                                trackColor = ProgressIndicatorDefaults.circularIndeterminateTrackColor,
+                                strokeCap = ProgressIndicatorDefaults.CircularIndeterminateStrokeCap,
+                            )
+                        }
                     }
                 }
             }
@@ -149,21 +166,6 @@ fun DownloadItemRow(
                 )
             }
 
-            if (isActive) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = when (downloadInfo.status) {
-                        DownloadService.DownloadStatus.DOWNLOADING -> "Downloading ${downloadInfo.progress.toInt()}%"
-                        DownloadService.DownloadStatus.PAUSED -> "Paused ${downloadInfo.progress.toInt()}%"
-                        DownloadService.DownloadStatus.QUEUED -> "Queued"
-                        else -> ""
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1
-                )
-            }
-
             if (isEpisode && mediaItem.seriesName != null) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
@@ -181,6 +183,25 @@ fun DownloadItemRow(
                     overflow = TextOverflow.Ellipsis
                 )
             }
+
+            if (isActive) {
+                Spacer(modifier = Modifier.height(4.dp))
+                val statusText = DownloadDisplayFormatter.formatStatus(context, downloadInfo)
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1
+                )
+            }
+        }
+
+        if (selectionEnabled) {
+            Spacer(modifier = Modifier.width(calculateRoundedValue(8).sdp))
+            Checkbox(
+                checked = isSelected,
+                onCheckedChange = onSelectionChange
+            )
         }
     }
 }

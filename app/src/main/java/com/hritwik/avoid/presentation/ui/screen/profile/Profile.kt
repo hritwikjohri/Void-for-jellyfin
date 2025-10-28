@@ -30,10 +30,9 @@ import com.hritwik.avoid.presentation.ui.components.common.LogoutDialog
 import com.hritwik.avoid.presentation.ui.components.visual.AnimatedAmbientBackground
 import com.hritwik.avoid.presentation.ui.screen.profile.tab.DownloadTabContent
 import com.hritwik.avoid.presentation.ui.screen.profile.tab.ServerTabContent
-import com.hritwik.avoid.presentation.ui.screen.profile.tab.UserTabContent
+import com.hritwik.avoid.presentation.ui.screen.profile.tab.PlayerTabContent
 import com.hritwik.avoid.presentation.ui.screen.profile.tab.VoidTabContent
 import com.hritwik.avoid.presentation.ui.screen.profile.tab.JellyseerTabContent
-import com.hritwik.avoid.presentation.ui.screen.profile.tab.PersonalizationTabContent
 import com.hritwik.avoid.presentation.ui.theme.Minsk
 import com.hritwik.avoid.presentation.viewmodel.auth.AuthServerViewModel
 import com.hritwik.avoid.presentation.viewmodel.user.UserDataViewModel
@@ -49,6 +48,7 @@ fun Profile(
     onNavigateToTeamVoid: () -> Unit = {},
     onSwitchUser: () -> Unit = {},
     onNavigateToChangePassword: () -> Unit = {},
+    onNavigateToTvLogin: () -> Unit = {},
     onConnectionDashboard: () -> Unit = {},
     authViewModel: AuthServerViewModel = hiltViewModel(),
     userDataViewModel: UserDataViewModel = hiltViewModel(),
@@ -80,7 +80,7 @@ fun Profile(
         downloadsCount = downloads.size,
     )
 
-    val tabs = listOf("Void", "User", "Personalization", "Download", "Jellyseer", "Server")
+    val tabs = listOf("Void", "Player", "Download", "JellySeer", "Server")
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { tabs.size })
     val coroutineScope = rememberCoroutineScope()
 
@@ -135,16 +135,16 @@ fun Profile(
             HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
                 when (page) {
                     0 -> VoidTabContent(
+                        onNavigateToChangePassword = onNavigateToChangePassword,
                         onNavigateToFavorites = onNavigateToFavorites,
                         onNavigateToDownloads = onNavigateToDownloads,
-                        onNavigateToTeamVoid = onNavigateToTeamVoid
+                        onNavigateToTeamVoid = onNavigateToTeamVoid,
+                        isOffline = authState.isOfflineMode,
+                        onTvLogin = onNavigateToTvLogin
                     )
-                    1 -> UserTabContent(
-                        onNavigateToChangePassword = onNavigateToChangePassword
-                    )
-                    2 -> PersonalizationTabContent()
-                    3 -> DownloadTabContent()
-                    4 -> JellyseerTabContent(
+                    1 -> PlayerTabContent()
+                    2 -> DownloadTabContent()
+                    3 -> JellyseerTabContent(
                         config = jellyseerSettings,
                         authState = jellyseerAuthState,
                         onBaseUrlChange = userDataViewModel::updateJellyseerBaseUrl,
@@ -153,7 +153,7 @@ fun Profile(
                         onLogout = userDataViewModel::logoutOfJellyseer,
                         onClearFeedback = userDataViewModel::clearJellyseerAuthFeedback
                     )
-                    5 -> ServerTabContent(
+                    4 -> ServerTabContent(
                         userData = userData,
                         connectionMethods = authState.connectionMethods,
                         activeConnection = authState.activeConnectionMethod,

@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import com.hritwik.avoid.domain.model.library.PendingAction
 import com.hritwik.avoid.domain.model.playback.Segment
 import com.hritwik.avoid.domain.model.library.HomeScreenData
+import com.hritwik.avoid.domain.model.library.Person
 
 data class RelatedResources(
     val similar: List<MediaItem>,
@@ -168,6 +169,11 @@ interface LibraryRepository {
         mediaId: String,
         accessToken: String
     ): NetworkResult<List<Segment>>
+    suspend fun getMediaCredits(
+        userId: String,
+        mediaId: String,
+        accessToken: String
+    ): NetworkResult<List<Person>>
     suspend fun updateFavoriteRemote(
         userId: String,
         mediaId: String,

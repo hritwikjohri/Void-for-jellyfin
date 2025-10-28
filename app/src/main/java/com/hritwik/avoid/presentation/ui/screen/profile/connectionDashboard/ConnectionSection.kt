@@ -1,6 +1,6 @@
 package com.hritwik.avoid.presentation.ui.screen.profile.connectionDashboard
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,7 +19,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -41,7 +40,6 @@ fun ConnectionSection(
     title: String,
     subtitle: String,
     icon: ImageVector,
-    iconTint: Color,
     inputs: List<String>,
     onInputChange: (Int, String) -> Unit,
     onMove: (Int, Int) -> Unit,
@@ -56,9 +54,12 @@ fun ConnectionSection(
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor = Color.Transparent
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        border = BorderStroke(
+            width = calculateRoundedValue(1).sdp,
+            color = Color.White.copy(alpha = 0.2f)
+        )
     ) {
         Column(
             modifier = Modifier
@@ -72,14 +73,12 @@ fun ConnectionSection(
                 Box(
                     modifier = Modifier
                         .size(calculateRoundedValue(40).sdp)
-                        .clip(RoundedCornerShape(calculateRoundedValue(8).sdp))
-                        .background(iconTint.copy(alpha = 0.1f)),
+                        .clip(RoundedCornerShape(calculateRoundedValue(8).sdp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
-                        tint = iconTint,
                         modifier = Modifier.size(calculateRoundedValue(24).sdp)
                     )
                 }
@@ -118,6 +117,7 @@ fun ConnectionSection(
             }
 
             Spacer(modifier = Modifier.height(calculateRoundedValue(12).sdp))
+
             TextButton(
                 onClick = onAdd,
                 modifier = Modifier.fillMaxWidth()
@@ -131,11 +131,7 @@ fun ConnectionSection(
                 Text("Add ${title.lowercase()} address")
             }
 
-            
-            HorizontalDivider(
-                modifier = Modifier.padding(vertical = calculateRoundedValue(12).sdp),
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-            )
+            Spacer(modifier = Modifier.height(calculateRoundedValue(12).sdp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

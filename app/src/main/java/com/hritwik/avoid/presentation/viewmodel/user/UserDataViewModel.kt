@@ -1,45 +1,42 @@
 package com.hritwik.avoid.presentation.viewmodel.user
 
 import android.content.Context
-import android.net.Uri
 import android.util.Log
 import androidx.annotation.OptIn
-import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
-import androidx.work.WorkManager
 import com.hritwik.avoid.core.ServiceEventBus
 import com.hritwik.avoid.core.ServiceManager
 import com.hritwik.avoid.data.cache.CacheManager
 import com.hritwik.avoid.data.common.NetworkResult
 import com.hritwik.avoid.data.common.RepositoryCache
+import com.hritwik.avoid.data.download.DownloadCoordinator
 import com.hritwik.avoid.data.download.DownloadService
+import com.hritwik.avoid.data.download.toDownloadInfo
 import com.hritwik.avoid.data.local.PreferencesManager
 import com.hritwik.avoid.data.local.database.dao.DownloadDao
-import com.hritwik.avoid.data.local.database.entities.DownloadEntity
 import com.hritwik.avoid.data.local.model.PlaybackPreferences
-import com.hritwik.avoid.data.sync.PlaybackLogSyncWorker
-import com.hritwik.avoid.data.sync.UserDataSyncWorker
 import com.hritwik.avoid.domain.error.AppError
 import com.hritwik.avoid.domain.model.download.DownloadCodec
 import com.hritwik.avoid.domain.model.download.DownloadQuality
 import com.hritwik.avoid.domain.model.download.DownloadRequest
-import com.hritwik.avoid.domain.model.library.MediaItem
 import com.hritwik.avoid.domain.model.jellyseer.JellyseerConfig
-import com.hritwik.avoid.domain.usecase.jellyseer.LoginToJellyseerUseCase
-import com.hritwik.avoid.domain.usecase.jellyseer.LogoutFromJellyseerUseCase
+import com.hritwik.avoid.domain.model.library.MediaItem
 import com.hritwik.avoid.domain.model.playback.DecoderMode
 import com.hritwik.avoid.domain.model.playback.DisplayMode
 import com.hritwik.avoid.domain.model.playback.PlayerType
 import com.hritwik.avoid.domain.model.playback.PreferredAudioCodec
 import com.hritwik.avoid.domain.model.playback.PreferredVideoCodec
 import com.hritwik.avoid.domain.repository.LibraryRepository
-import com.hritwik.avoid.domain.usecase.backup.BackupUseCase
+import com.hritwik.avoid.domain.usecase.jellyseer.LoginToJellyseerUseCase
+import com.hritwik.avoid.domain.usecase.jellyseer.LogoutFromJellyseerUseCase
 import com.hritwik.avoid.presentation.viewmodel.BaseViewModel
 import com.hritwik.avoid.utils.constants.PreferenceConstants
 import com.hritwik.avoid.utils.helpers.ConnectivityObserver
+import com.hritwik.avoid.utils.helpers.normalizeUuid
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -53,6 +50,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
@@ -60,6 +58,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.util.Locale
 import javax.inject.Inject
 
 @OptIn(UnstableApi::class)
@@ -70,9 +69,8 @@ class UserDataViewModel @Inject constructor(
     private val preferencesManager: PreferencesManager,
     @ApplicationContext private val context: Context,
     private val serviceManager: ServiceManager,
+    private val downloadCoordinator: DownloadCoordinator,
     private val cacheManager: CacheManager,
-    private val backupUseCase: BackupUseCase,
-    private val dataWiper: com.hritwik.avoid.utils.DataWiper,
     private val loginToJellyseerUseCase: LoginToJellyseerUseCase,
     private val logoutFromJellyseerUseCase: LogoutFromJellyseerUseCase,
     connectivityObserver: ConnectivityObserver
@@ -88,7 +86,6 @@ class UserDataViewModel @Inject constructor(
     private val remotePlayedItems = MutableStateFlow<Set<String>>(emptySet())
     private var latestLocalPlayedItems: Set<String> = emptySet()
     private val _playedError = MutableStateFlow<AppError?>(null)
-    val playedError: StateFlow<AppError?> = _playedError.asStateFlow()
 
     private val _serviceEvents = MutableSharedFlow<ServiceEventBus.Event>()
     val serviceEvents: SharedFlow<ServiceEventBus.Event> = _serviceEvents.asSharedFlow()
@@ -96,9 +93,42 @@ class UserDataViewModel @Inject constructor(
     private var favoritesCollectionJob: Job? = null
     private var playedItemsCollectionJob: Job? = null
 
+    private val _mpvConfig = MutableStateFlow("")
+    val mpvConfig: StateFlow<String> = _mpvConfig.asStateFlow()
+
     init {
         viewModelScope.launch {
             ServiceEventBus.events.collect { _serviceEvents.emit(it) }
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { preferencesManager.getMpvConfig() }
+                .onSuccess { config -> _mpvConfig.value = config }
+                .onFailure { error ->
+                    Log.e("UserDataViewModel", "Failed to load MPV config", error)
+                }
+        }
+    }
+
+    fun refreshMpvConfig() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { preferencesManager.getMpvConfig() }
+                .onSuccess { config -> _mpvConfig.value = config }
+                .onFailure { error ->
+                    Log.e("UserDataViewModel", "Failed to refresh MPV config", error)
+                }
+        }
+    }
+
+    fun saveMpvConfig(config: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                preferencesManager.saveMpvConfig(config)
+                config
+            }
+                .onSuccess { savedConfig -> _mpvConfig.value = savedConfig }
+                .onFailure { error ->
+                    Log.e("UserDataViewModel", "Failed to save MPV config", error)
+                }
         }
     }
 
@@ -131,81 +161,87 @@ class UserDataViewModel @Inject constructor(
             val managerInfos = managerMap.values.toList()
             val remaining = entities
                 .filter { (it.mediaSourceId ?: it.mediaId) !in managerMap.keys }
-                .map { it.toDownloadInfo() }
-            managerInfos + remaining
+                .map { it.toDownloadInfo(json) }
+            sortDownloads(managerInfos + remaining)
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    private fun DownloadEntity.toDownloadInfo(): DownloadService.DownloadInfo {
-        val file = filePath?.let { File(it) } ?: File("")
-        val dir = file.parentFile
-        val source = mediaSourceId ?: mediaId
-        val jsonFile = dir?.resolve("$source.json")
-        val mediaItem = if (jsonFile?.exists() == true) {
-            runCatching { json.decodeFromString<MediaItem>(jsonFile.readText()) }.getOrNull()
-        } else null
-        val finalItem = mediaItem ?: MediaItem(
-            id = mediaId,
-            name = title,
-            title = title,
-            type = type,
-            overview = null,
-            year = null,
-            communityRating = null,
-            runTimeTicks = null,
-            primaryImageTag = null,
-            thumbImageTag = null,
-            logoImageTag = null,
-            backdropImageTags = emptyList(),
-            genres = emptyList(),
-            isFolder = false,
-            childCount = null,
-            userData = null
+    private fun sortDownloads(downloads: List<DownloadService.DownloadInfo>): List<DownloadService.DownloadInfo> {
+        return downloads.sortedWith(
+            compareBy(
+                { it.showNameSortKey() },
+                { it.seasonSortKey() },
+                { it.episodeSortKey() },
+                { it.mediaItem.name.lowercase(Locale.ROOT) }
+            )
         )
-        val statusEnum = runCatching { DownloadService.DownloadStatus.valueOf(status) }
-            .getOrElse { DownloadService.DownloadStatus.COMPLETED }
-        val qualityEnum = runCatching { DownloadQuality.valueOf(quality) }
-            .getOrElse { DownloadQuality.FHD_1080 }
-        val parsedUri = runCatching { Uri.parse(requestUri) }.getOrNull()
-        fun String?.toBooleanStrictOrDefault(default: Boolean): Boolean =
-            this?.equals("true", ignoreCase = true) ?: default
+    }
 
-        val codecParam = parsedUri?.getQueryParameter("VideoCodec")
-        val codec = codecParam?.let { DownloadCodec.fromLabel(it) } ?: DownloadCodec.H264
-        val request = DownloadRequest(
-            quality = qualityEnum,
-            static = parsedUri?.getQueryParameter("static").toBooleanStrictOrDefault(true),
-            maxWidth = parsedUri?.getQueryParameter("MaxWidth")?.toIntOrNull(),
-            maxHeight = parsedUri?.getQueryParameter("MaxHeight")?.toIntOrNull(),
-            maxBitrate = parsedUri?.getQueryParameter("MaxBitrate")?.toIntOrNull(),
-            videoBitrate = parsedUri?.getQueryParameter("VideoBitrate")?.toIntOrNull(),
-            audioBitrate = parsedUri?.getQueryParameter("AudioBitrate")?.toIntOrNull(),
-            videoCodec = codec,
-            audioCodec = parsedUri?.getQueryParameter("AudioCodec") ?: DownloadRequest.defaultAudioCodecs(),
-            copySubtitles = parsedUri?.getQueryParameter("CopySubtitles").toBooleanStrictOrDefault(false),
-            copyFontData = parsedUri?.getQueryParameter("CopyFonts").toBooleanStrictOrDefault(
-                parsedUri?.getQueryParameter("EnableSubtitlesInManifest").toBooleanStrictOrDefault(false)
-            ),
-            enableAutoStreamCopy = parsedUri?.getQueryParameter("EnableAutoStreamCopy")
-                .toBooleanStrictOrDefault(parsedUri?.getQueryParameter("static").toBooleanStrictOrDefault(true)),
-            allowVideoStreamCopy = parsedUri?.getQueryParameter("AllowVideoStreamCopy")
-                .toBooleanStrictOrDefault(parsedUri?.getQueryParameter("static").toBooleanStrictOrDefault(true)),
-            allowAudioStreamCopy = parsedUri?.getQueryParameter("AllowAudioStreamCopy")
-                .toBooleanStrictOrDefault(parsedUri?.getQueryParameter("static").toBooleanStrictOrDefault(true)),
-        )
-        return DownloadService.DownloadInfo(
-            mediaItem = finalItem,
-            requestUri = requestUri,
-            file = file,
-            progress = progress,
-            status = statusEnum,
-            serverUrl = serverUrl,
-            accessToken = accessToken,
-            priority = priority,
-            addedAt = addedAt,
-            quality = qualityEnum,
-            request = request,
-            mediaSourceId = mediaSourceId
-        )
+    private fun DownloadService.DownloadInfo.showNameSortKey(): String {
+        val item = mediaItem
+        val name = if (item.type.equals("Episode", ignoreCase = true)) {
+            item.seriesName ?: item.name
+        } else {
+            item.name
+        }
+        return name.lowercase(Locale.ROOT)
+    }
+
+    private fun DownloadService.DownloadInfo.seasonSortKey(): Int {
+        val item = mediaItem
+        return if (item.type.equals("Episode", ignoreCase = true)) {
+            item.parentIndexNumber ?: Int.MAX_VALUE
+        } else {
+            Int.MAX_VALUE
+        }
+    }
+
+    private fun DownloadService.DownloadInfo.episodeSortKey(): Int {
+        val item = mediaItem
+        return if (item.type.equals("Episode", ignoreCase = true)) {
+            item.indexNumber ?: Int.MAX_VALUE
+        } else {
+            Int.MAX_VALUE
+        }
+    }
+
+    fun pauseAllDownloads() {
+        viewModelScope.launch { serviceManager.pauseAllDownloads() }
+    }
+
+    fun resumeAllDownloads() {
+        viewModelScope.launch { serviceManager.resumeAllDownloads() }
+    }
+
+    fun deleteDownloads(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            ids.forEach { id ->
+                val candidates = buildIdCandidates(id)
+                candidates.forEach { candidate -> serviceManager.cancelDownload(candidate) }
+                val entity = findDownloadEntity(candidates)
+                if (entity != null) {
+                    runCatching { downloadDao.deleteDownload(entity) }
+                }
+            }
+            serviceManager.cleanupOrphanedDownloads()
+        }
+    }
+
+    private suspend fun findDownloadEntity(candidates: Set<String>) =
+        candidates.firstNotNullOfOrNull { candidate ->
+            downloadDao.getDownloadByMediaSourceId(candidate)
+        } ?: candidates.firstNotNullOfOrNull { candidate ->
+            downloadDao.getDownloadByMediaId(candidate)
+        }
+
+    private fun buildIdCandidates(id: String): Set<String> {
+        val normalized = normalizeUuid(id)
+        val compact = normalized.replace("-", "")
+        return buildSet {
+            add(id)
+            add(normalized)
+            add(compact)
+        }
     }
 
     data class HomeSettings(
@@ -225,9 +261,9 @@ class UserDataViewModel @Inject constructor(
             viewModelScope,
             SharingStarted.Eagerly,
             HomeSettings(
-                PreferenceConstants.DEFAULT_SHOW_FEATURED_HEADER,
-                PreferenceConstants.DEFAULT_AMBIENT_BACKGROUND,
-                PreferenceConstants.DEFAULT_NAVIGATE_EPISODES_TO_SEASON
+                showFeaturedHeader = false,
+                ambientBackground = true,
+                navigateEpisodesToSeason = true
             )
         )
 
@@ -238,6 +274,7 @@ class UserDataViewModel @Inject constructor(
         val playerType: PlayerType,
         val preferredVideoCodec: PreferredVideoCodec,
         val preferredAudioCodec: PreferredAudioCodec,
+        val autoPlayNextEpisode: Boolean,
         val autoSkipSegments: Boolean
     )
 
@@ -249,6 +286,7 @@ class UserDataViewModel @Inject constructor(
             preferencesManager.getPlayerType(),
             preferencesManager.getPreferredVideoCodec(),
             preferencesManager.getPreferredAudioCodec(),
+            preferencesManager.getAutoPlay(),
             preferencesManager.getAutoSkipSegments()
         ) { values ->
             val playTheme = values[0] as Boolean
@@ -257,7 +295,8 @@ class UserDataViewModel @Inject constructor(
             val playerType = values[3] as PlayerType
             val videoCodec = values[4] as PreferredVideoCodec
             val audioCodec = values[5] as PreferredAudioCodec
-            val autoSkip = values[6] as Boolean
+            val autoPlayNext = values[6] as Boolean
+            val autoSkip = values[7] as Boolean
 
             PlaybackSettings(
                 playTheme,
@@ -266,19 +305,21 @@ class UserDataViewModel @Inject constructor(
                 playerType,
                 videoCodec,
                 audioCodec,
+                autoPlayNext,
                 autoSkip
             )
         }.stateIn(
             viewModelScope,
             SharingStarted.Eagerly,
             PlaybackSettings(
-                PreferenceConstants.DEFAULT_PLAY_THEME_SONGS,
+                false,
                 DisplayMode.FIT_SCREEN,
                 DecoderMode.fromValue(PreferenceConstants.DEFAULT_DECODER_MODE),
                 PlayerType.fromValue(PreferenceConstants.DEFAULT_PLAYER_TYPE),
                 PreferredVideoCodec.fromPreferenceValue(PreferenceConstants.DEFAULT_PREFERRED_VIDEO_CODEC),
                 PreferredAudioCodec.fromPreferenceValue(PreferenceConstants.DEFAULT_PREFERRED_AUDIO_CODEC),
-                PreferenceConstants.DEFAULT_AUTO_SKIP_SEGMENTS
+                autoPlayNextEpisode = true,
+                autoSkipSegments = false
             )
         )
 
@@ -292,17 +333,17 @@ class UserDataViewModel @Inject constructor(
     )
 
     private val defaultSettings = DownloadSettings(
-        downloadWifiOnly = PreferenceConstants.DEFAULT_DOWNLOAD_WIFI_ONLY,
+        downloadWifiOnly = true,
         downloadQuality = DownloadQuality.FHD_1080,
         downloadCodec = DownloadCodec.fromLabel(PreferenceConstants.DEFAULT_DOWNLOAD_CODEC),
-        autoDeleteDownloads = PreferenceConstants.DEFAULT_AUTO_DELETE_DOWNLOADS,
+        autoDeleteDownloads = false,
         storageLocation = PreferenceConstants.DEFAULT_DOWNLOAD_LOCATION,
     )
 
     
     private val wifiOnlyFlow = preferencesManager.getDownloadWifiOnly()
-        .onStart { emit(PreferenceConstants.DEFAULT_DOWNLOAD_WIFI_ONLY) }
-        .catch { emit(PreferenceConstants.DEFAULT_DOWNLOAD_WIFI_ONLY) }
+        .onStart { emit(true) }
+        .catch { emit(true) }
 
     private val qualityFlow = preferencesManager.getDownloadQuality()
         .map { label -> DownloadQuality.entries.firstOrNull { it.label == label } ?: DownloadQuality.FHD_1080 }
@@ -315,8 +356,8 @@ class UserDataViewModel @Inject constructor(
         .catch { emit(DownloadCodec.H264) }
 
     private val autoDeleteFlow = preferencesManager.getAutoDeleteDownloads()
-        .onStart { emit(PreferenceConstants.DEFAULT_AUTO_DELETE_DOWNLOADS) }
-        .catch { emit(PreferenceConstants.DEFAULT_AUTO_DELETE_DOWNLOADS) }
+        .onStart { emit(false) }
+        .catch { emit(false) }
 
     private val locationFlow = preferencesManager.getDownloadLocation()
         .onStart { emit(PreferenceConstants.DEFAULT_DOWNLOAD_LOCATION) }
@@ -338,49 +379,6 @@ class UserDataViewModel @Inject constructor(
 
     val availableDownloadQualities: List<DownloadQuality> = DownloadQuality.entries
     val availableDownloadCodecs: List<DownloadCodec> = DownloadCodec.entries
-
-    data class CacheSettings(
-        val imageCacheSize: Long,
-        val videoCacheSize: Long
-    )
-
-    val cacheSettings: StateFlow<CacheSettings> =
-        combine(
-            preferencesManager.getImageCacheSize(),
-            preferencesManager.getVideoCacheSize()
-        ) { image, video ->
-            CacheSettings(image, video)
-        }.stateIn(
-            viewModelScope,
-            SharingStarted.Eagerly,
-            CacheSettings(
-                PreferenceConstants.DEFAULT_IMAGE_CACHE_SIZE.toLong(),
-                PreferenceConstants.DEFAULT_VIDEO_CACHE_SIZE.toLong()
-            )
-        )
-
-    data class BackgroundSettings(
-        val syncEnabled: Boolean,
-        val heartbeatEnabled: Boolean,
-        val cleanupEnabled: Boolean,
-    )
-
-    val backgroundSettings: StateFlow<BackgroundSettings> =
-        combine(
-            preferencesManager.getSyncEnabled(),
-            preferencesManager.getHeartbeatEnabled(),
-            preferencesManager.getCleanupEnabled(),
-        ) { sync, heartbeat, cleanup ->
-            BackgroundSettings(sync, heartbeat, cleanup)
-        }.stateIn(
-            viewModelScope,
-            SharingStarted.Eagerly,
-            BackgroundSettings(
-                PreferenceConstants.DEFAULT_SYNC_ENABLED,
-                PreferenceConstants.DEFAULT_HEARTBEAT_ENABLED,
-                PreferenceConstants.DEFAULT_CLEANUP_ENABLED,
-            )
-        )
 
     data class PersonalizationSettings(
         val themeMode: String,
@@ -406,8 +404,8 @@ class UserDataViewModel @Inject constructor(
                 PreferenceConstants.DEFAULT_THEME_MODE,
                 PreferenceConstants.DEFAULT_FONT_SCALE,
                 PreferenceConstants.DEFAULT_PREFERRED_LANGUAGE,
-                PreferenceConstants.DEFAULT_GESTURE_CONTROLS,
-                PreferenceConstants.DEFAULT_HIGH_CONTRAST,
+                gesturesEnabled = true,
+                highContrast = false,
             )
         )
 
@@ -467,19 +465,12 @@ class UserDataViewModel @Inject constructor(
         viewModelScope.launch { preferencesManager.savePlayerType(playerType) }
     }
 
-    fun setAutoSkipSegments(enabled: Boolean) {
-        viewModelScope.launch { preferencesManager.saveAutoSkipSegments(enabled) }
+    fun setAutoPlay(enabled: Boolean) {
+        viewModelScope.launch { preferencesManager.saveAutoPlay(enabled) }
     }
 
-    fun setThemeMode(mode: String) {
-        viewModelScope.launch {
-            preferencesManager.saveThemeMode(mode)
-            val nightMode = if (mode == "light")
-                AppCompatDelegate.MODE_NIGHT_NO
-            else
-                AppCompatDelegate.MODE_NIGHT_YES
-            AppCompatDelegate.setDefaultNightMode(nightMode)
-        }
+    fun setAutoSkipSegments(enabled: Boolean) {
+        viewModelScope.launch { preferencesManager.saveAutoSkipSegments(enabled) }
     }
 
     fun updateJellyseerBaseUrl(url: String) {
@@ -511,15 +502,6 @@ class UserDataViewModel @Inject constructor(
                     _jellyseerAuthState.update {
                         it.copy(
                             errorMessage = "Username is required",
-                            successMessage = null
-                        )
-                    }
-                    return@launch
-                }
-                password.isBlank() -> {
-                    _jellyseerAuthState.update {
-                        it.copy(
-                            errorMessage = "Password is required",
                             successMessage = null
                         )
                     }
@@ -601,41 +583,8 @@ class UserDataViewModel @Inject constructor(
         _jellyseerAuthState.update { it.copy(errorMessage = null, successMessage = null) }
     }
 
-    fun setFontScale(scale: Float) {
-        viewModelScope.launch { preferencesManager.saveFontScale(scale) }
-    }
-
-    fun setPreferredLanguage(language: String) {
-        viewModelScope.launch { preferencesManager.savePreferredLanguage(language) }
-    }
-
     fun setGesturesEnabled(enabled: Boolean) {
         viewModelScope.launch { preferencesManager.saveGestureControlsEnabled(enabled) }
-    }
-
-    fun setHighContrastEnabled(enabled: Boolean) {
-        viewModelScope.launch { preferencesManager.saveHighContrastEnabled(enabled) }
-    }
-
-    fun setSyncEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            preferencesManager.saveSyncEnabled(enabled)
-            if (enabled) {
-                UserDataSyncWorker.enqueue(context)
-                PlaybackLogSyncWorker.enqueue(context)
-            } else {
-                UserDataSyncWorker.cancel(context)
-                WorkManager.getInstance(context).cancelUniqueWork("PlaybackLogSync")
-            }
-        }
-    }
-
-    fun setHeartbeatEnabled(enabled: Boolean) {
-        viewModelScope.launch { preferencesManager.saveHeartbeatEnabled(enabled) }
-    }
-
-    fun setCleanupEnabled(enabled: Boolean) {
-        viewModelScope.launch { preferencesManager.saveCleanupEnabled(enabled) }
     }
 
     fun setDownloadWifiOnly(enabled: Boolean) {
@@ -661,31 +610,62 @@ class UserDataViewModel @Inject constructor(
         return true
     }
 
-    fun clearImageCache(): Boolean {
-        cacheManager.clearImageCache()
-        return true
+    fun clearDownloads() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val activeIds = serviceManager.downloads.value.keys.toList()
+            activeIds.forEach { id ->
+                runCatching { serviceManager.cancelDownload(id) }
+            }
+
+            val storedDownloads = downloadDao.getAllDownloads().first()
+
+            storedDownloads.forEach { entity ->
+                entity.filePath?.let { path ->
+                    val parent = File(path).parentFile
+                    if (parent?.exists() == true) {
+                        deleteDir(parent, "Download file directory")
+                    }
+                }
+
+                entity.subtitleFilePaths.forEach { subtitlePath ->
+                    val subtitleFile = File(subtitlePath)
+                    if (subtitleFile.exists()) {
+                        if (subtitleFile.isDirectory) {
+                            deleteDir(subtitleFile, "Subtitle directory")
+                        } else {
+                            subtitleFile.delete()
+                        }
+                    }
+                }
+
+                entity.mediaSourceId?.let { sourceId ->
+                    val tempDir = File(context.filesDir, "downloads/$sourceId")
+                    if (tempDir.exists()) {
+                        deleteDir(tempDir, "Download temp directory")
+                    }
+                }
+            }
+
+            val cacheDownloadsDir = File(context.cacheDir, "downloads")
+            if (cacheDownloadsDir.exists()) {
+                deleteDir(cacheDownloadsDir, "Download cache directory")
+            }
+
+            val appDownloadsDir = File(context.filesDir, "downloads")
+            if (appDownloadsDir.exists()) {
+                deleteDir(appDownloadsDir, "Downloads directory")
+            }
+
+            context.getExternalFilesDir(null)?.let { externalFilesDir ->
+                val externalDownloadsDir = File(externalFilesDir, "downloads")
+                if (externalDownloadsDir.exists()) {
+                    deleteDir(externalDownloadsDir, "External downloads directory")
+                }
+            }
+
+            downloadDao.deleteAllDownloads()
+        }
     }
-
-    fun clearVideoCache(): Boolean {
-        cacheManager.clearVideoCache()
-        return true
-    }
-
-    fun clearDownloads(): Boolean {
-        return deleteDir(File(context.cacheDir, "downloads"), "Downloads directory")
-    }
-
-    fun setImageCacheSize(sizeMb: Long) {
-        viewModelScope.launch { cacheManager.setImageCacheSize(sizeMb) }
-    }
-
-    fun setVideoCacheSize(sizeMb: Long) {
-        viewModelScope.launch { cacheManager.setVideoCacheSize(sizeMb) }
-    }
-
-    fun getImageCacheUsage(): Long = cacheManager.getImageCacheUsage()
-
-    fun getVideoCacheUsage(): Long = cacheManager.getVideoCacheUsage()
 
     fun loadPlayedItems(userId: String, accessToken: String) {
         playedItemsCollectionJob?.cancel()
@@ -760,7 +740,7 @@ class UserDataViewModel @Inject constructor(
                 previousFavorites.filterNot { it.id == mediaId }
             }
 
-            when (val result = libraryRepository.toggleFavorite(userId, mediaId, accessToken, newFavorite, mediaItem)) {
+            when (libraryRepository.toggleFavorite(userId, mediaId, accessToken, newFavorite, mediaItem)) {
                 is NetworkResult.Success -> {
                     cache.invalidate("favorites_$userId")
                     loadFavorites(userId, accessToken)
@@ -822,39 +802,18 @@ class UserDataViewModel @Inject constructor(
         accessToken: String,
         priority: Int = 0,
         mediaSourceId: String? = null,
+        userId: String? = null,
     ) {
-        serviceManager.startDownload(
-            mediaItem = mediaItem,
-            serverUrl = serverUrl,
-            accessToken = accessToken,
-            request = request,
-            priority = priority,
-            mediaSourceId = mediaSourceId
-        )
-    }
-
-    fun pauseDownload(id: String) {
         viewModelScope.launch {
-            downloadDao.getDownloadByMediaSourceId(id)?.let {
-                downloadDao.updateDownload(it.copy(status = "paused"))
-            }
-        }
-    }
-
-    fun resumeDownload(id: String) {
-        viewModelScope.launch {
-            downloadDao.getDownloadByMediaSourceId(id)?.let {
-                downloadDao.updateDownload(it.copy(status = "downloading"))
-            }
-        }
-    }
-
-    fun cancelDownload(id: String) {
-        viewModelScope.launch {
-            serviceManager.cancelDownload(id)
-            downloadDao.getDownloadByMediaSourceId(id)?.let {
-                downloadDao.deleteDownload(it)
-            }
+            downloadCoordinator.startDownload(
+                mediaItem = mediaItem,
+                request = request,
+                serverUrl = serverUrl,
+                accessToken = accessToken,
+                priority = priority,
+                mediaSourceId = mediaSourceId,
+                userId = userId
+            )
         }
     }
 
@@ -874,34 +833,6 @@ class UserDataViewModel @Inject constructor(
         remotePlayedItems.value = emptySet()
         latestLocalPlayedItems = emptySet()
         _playedError.value = null
-    }
-
-    fun exportPersonalData(onResult: (Boolean) -> Unit) {
-        viewModelScope.launch {
-            val result = backupUseCase(BackupUseCase.Params(BackupUseCase.Action.BACKUP))
-            onResult(result is NetworkResult.Success)
-        }
-    }
-
-    fun erasePersonalData(onResult: (Boolean) -> Unit) {
-        viewModelScope.launch {
-            val result = runCatching { dataWiper.wipeAll() }
-            onResult(result.isSuccess)
-        }
-    }
-
-    fun backupAppData(onResult: (Boolean) -> Unit) {
-        viewModelScope.launch {
-            val result = backupUseCase(BackupUseCase.Params(BackupUseCase.Action.BACKUP))
-            onResult(result is NetworkResult.Success)
-        }
-    }
-
-    fun restoreAppData(onResult: (Boolean) -> Unit) {
-        viewModelScope.launch {
-            val result = backupUseCase(BackupUseCase.Params(BackupUseCase.Action.RESTORE))
-            onResult(result is NetworkResult.Success)
-        }
     }
 
     companion object {

@@ -1,5 +1,8 @@
 package com.hritwik.avoid.presentation.viewmodel.auth
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hritwik.avoid.data.common.NetworkResult
@@ -26,16 +29,32 @@ import com.hritwik.avoid.domain.usecase.auth.SaveServerConfigUseCase
 import com.hritwik.avoid.domain.usecase.auth.ValidateSessionUseCase
 import com.hritwik.avoid.presentation.ui.state.QuickConnectState
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.io.IOException
+import java.util.Locale
+import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
-import javax.inject.Inject
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 
 @HiltViewModel
 class AuthServerViewModel @Inject constructor(
@@ -53,7 +72,8 @@ class AuthServerViewModel @Inject constructor(
     private val initiateQuickConnectUseCase: InitiateQuickConnectUseCase,
     private val pollQuickConnectUseCase: PollQuickConnectUseCase,
     private val serverConnectionManager: ServerConnectionManager,
-    private val preferencesManager: PreferencesManager
+    private val preferencesManager: PreferencesManager,
+    private val okHttpClient: OkHttpClient
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AuthServerState())
@@ -101,6 +121,21 @@ class AuthServerViewModel @Inject constructor(
         viewModelScope.launch {
             serverConnectionManager.ensureActiveConnection()
         }
+        viewModelScope.launch {
+            combine(
+                preferencesManager.isMtlsEnabled(),
+                preferencesManager.getMtlsCertificateName(),
+                preferencesManager.getMtlsCertificatePassword()
+            ) { enabled, certificateName, password ->
+                Triple(enabled, certificateName, password)
+            }.collect { (enabled, certificateName, password) ->
+                _state.value = _state.value.copy(
+                    isMtlsEnabled = enabled,
+                    mtlsCertificateName = certificateName,
+                    mtlsCertificatePassword = password.orEmpty()
+                )
+            }
+        }
         loadSavedServer()
         checkSavedAuth()
     }
@@ -141,12 +176,269 @@ class AuthServerViewModel @Inject constructor(
         }
     }
 
+    fun updateServerPushAddress(address: String) {
+        _state.value = _state.value.copy(
+            serverPushAddress = address,
+            serverPushFeedback = null,
+            serverPushSuccess = null
+        )
+    }
+
+    fun sendServerDetails(context: Context) {
+        val currentState = _state.value
+        val endpoint = currentState.serverPushAddress.trim()
+        if (endpoint.isEmpty()) {
+            _state.value = currentState.copy(
+                serverPushFeedback = "Enter a destination IP and port",
+                serverPushSuccess = false
+            )
+            return
+        }
+
+        val serverUrl = currentState.activeConnectionMethod?.url
+            ?: currentState.serverUrl
+            ?: currentState.server?.url
+
+        if (serverUrl.isNullOrBlank()) {
+            _state.value = currentState.copy(
+                serverPushFeedback = "No active server connection available",
+                serverPushSuccess = false
+            )
+            return
+        }
+
+        val endpointUrl = if (endpoint.startsWith("http://", ignoreCase = true) ||
+            endpoint.startsWith("https://", ignoreCase = true)
+        ) {
+            endpoint
+        } else {
+            "http://$endpoint"
+        }
+
+        val httpUrl = endpointUrl.toHttpUrlOrNull()
+        if (httpUrl == null) {
+            _state.value = currentState.copy(
+                serverPushFeedback = "Invalid destination address",
+                serverPushSuccess = false
+            )
+            return
+        }
+
+        viewModelScope.launch {
+            _state.value = _state.value.copy(
+                isServerPushInProgress = true,
+                serverPushFeedback = null,
+                serverPushSuccess = null
+            )
+
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val parsedServerUri = runCatching { Uri.parse(serverUrl) }.getOrNull()
+                    val scheme = parsedServerUri?.scheme?.lowercase(Locale.US) ?: "http"
+                    val connectionType = if (scheme == "https") "HTTPS" else "HTTP"
+                    val port = parsedServerUri?.port?.takeIf { it != -1 }
+                        ?: if (connectionType == "HTTPS") 443 else 80
+                    val host = parsedServerUri?.host?.takeUnless { it.isNullOrBlank() } ?: serverUrl
+                    val fullUrl = currentState.activeConnectionMethod?.url
+                        ?: parsedServerUri?.toString()
+                        ?: serverUrl
+
+                    val token = currentState.authSession?.accessToken
+                        ?: preferencesManager.getAccessToken().firstOrNull().orEmpty()
+
+                    val isMtlsEnabledForPush = currentState.serverPushFileUri != null
+                    val payload = ServerPushPayload(
+                        serverUrl = host,
+                        port = port,
+                        connectionType = connectionType,
+                        fullUrl = fullUrl,
+                        mediaToken = token,
+                        mTLS = isMtlsEnabledForPush,
+                        password = if (isMtlsEnabledForPush) currentState.serverPushPassword else ""
+                    )
+
+                    val jsonBody = Json.encodeToString(payload)
+                    val multipartBuilder = MultipartBody.Builder()
+                        .setType(MultipartBody.FORM)
+                        .addFormDataPart(
+                            name = "serverDetails",
+                            filename = "server_details.json",
+                            body = jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType())
+                        )
+                        .addFormDataPart("destination", endpointUrl)
+
+                    currentState.serverPushFileUri?.let { fileUri ->
+                        val fileName = currentState.serverPushFileName
+                            ?: getDisplayName(context, fileUri)
+                            ?: fileUri.lastPathSegment
+                            ?: "upload.bin"
+                        val mimeType = context.contentResolver.getType(fileUri)?.takeIf { it.isNotBlank() }
+                            ?: "application/octet-stream"
+                        val fileBytes = context.contentResolver.openInputStream(fileUri)?.use { input ->
+                            input.readBytes()
+                        } ?: throw IllegalStateException("Unable to read selected file")
+                        val mediaType = mimeType.toMediaTypeOrNull() ?: "application/octet-stream".toMediaType()
+                        multipartBuilder.addFormDataPart(
+                            name = "file",
+                            filename = fileName,
+                            body = fileBytes.toRequestBody(mediaType)
+                        )
+                    }
+
+                    val requestBody = multipartBuilder.build()
+                    val request = Request.Builder()
+                        .url(httpUrl)
+                        .post(requestBody)
+                        .build()
+
+                    okHttpClient.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) {
+                            throw IOException("Unexpected response code ${'$'}{response.code}")
+                        }
+                    }
+                }
+            }
+
+            _state.value = _state.value.copy(
+                isServerPushInProgress = false,
+                serverPushFeedback = result.fold(
+                    onSuccess = { "Server details sent successfully" },
+                    onFailure = { throwable ->
+                        "Failed to send server details"
+                    }
+                ),
+                serverPushSuccess = result.isSuccess
+            )
+        }
+    }
+
+    fun selectServerPushFile(context: Context, uri: Uri?) {
+        if (uri == null) {
+            _state.value = _state.value.copy(
+                serverPushFileName = null,
+                serverPushFileUri = null,
+                serverPushPassword = ""
+            )
+            return
+        }
+
+        val displayName = getDisplayName(context, uri) ?: uri.lastPathSegment ?: "upload.bin"
+        _state.value = _state.value.copy(
+            serverPushFileName = displayName,
+            serverPushFileUri = uri,
+            serverPushFeedback = null,
+            serverPushSuccess = null,
+            serverPushPassword = ""
+        )
+    }
+
+    fun clearServerPushFile() {
+        _state.value = _state.value.copy(
+            serverPushFileName = null,
+            serverPushFileUri = null,
+            serverPushFeedback = null,
+            serverPushSuccess = null,
+            serverPushPassword = ""
+        )
+    }
+
+    fun updateServerPushPassword(password: String) {
+        _state.value = _state.value.copy(
+            serverPushPassword = password,
+            serverPushFeedback = null,
+            serverPushSuccess = null
+        )
+    }
+
+    fun setMtlsEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesManager.setMtlsEnabled(enabled)
+            if (!enabled) {
+                _state.value = _state.value.copy(mtlsError = null)
+            }
+        }
+    }
+
+    fun clearMtlsError() {
+        _state.value = _state.value.copy(mtlsError = null)
+    }
+
+    fun importMtlsCertificate(context: Context, uri: Uri) {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(isMtlsImporting = true, mtlsError = null)
+            try {
+                val bytes = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        input.readBytes()
+                    } ?: throw IllegalStateException("Unable to open selected certificate")
+                }
+                if (bytes.isEmpty()) {
+                    throw IllegalArgumentException("Selected certificate is empty")
+                }
+                val displayName = getDisplayName(context, uri) ?: uri.lastPathSegment ?: "mtls_certificate"
+                preferencesManager.saveMtlsCertificate(bytes, displayName)
+                preferencesManager.setMtlsEnabled(true)
+                preferencesManager.setMtlsCertificatePassword("")
+                _state.value = _state.value.copy(
+                    isMtlsImporting = false,
+                    mtlsError = null,
+                    isMtlsEnabled = true,
+                    mtlsCertificateName = displayName,
+                    mtlsCertificatePassword = ""
+                )
+            } catch (error: Exception) {
+                _state.value = _state.value.copy(
+                    isMtlsImporting = false,
+                    mtlsError = error.message ?: "Failed to import certificate"
+                )
+            }
+        }
+    }
+
+    fun updateMtlsCertificatePassword(password: String) {
+        _state.value = _state.value.copy(mtlsCertificatePassword = password)
+        viewModelScope.launch {
+            preferencesManager.setMtlsCertificatePassword(password)
+        }
+    }
+
+    fun removeMtlsCertificate() {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(isMtlsImporting = true, mtlsError = null)
+            runCatching {
+                preferencesManager.clearMtlsCertificate()
+                preferencesManager.setMtlsEnabled(false)
+            }.onSuccess {
+                _state.value = _state.value.copy(
+                    isMtlsImporting = false,
+                    mtlsCertificateName = null,
+                    mtlsCertificatePassword = "",
+                    isMtlsEnabled = false
+                )
+            }.onFailure { error ->
+                _state.value = _state.value.copy(
+                    isMtlsImporting = false,
+                    mtlsError = error.message ?: "Failed to remove certificate"
+                )
+            }
+        }
+    }
+
     fun connectToServer(serverUrl: String) {
         viewModelScope.launch {
+            if (_state.value.isMtlsEnabled && _state.value.mtlsCertificateName.isNullOrBlank()) {
+                _state.value = _state.value.copy(
+                    mtlsError = "Upload an mTLS certificate before connecting.",
+                    isLoading = false,
+                    isConnected = false
+                )
+                return@launch
+            }
             _state.value = _state.value.copy(
                 isLoading = true,
                 error = null,
-                isConnected = false
+                isConnected = false,
+                mtlsError = null
             )
 
             val cleanUrl = cleanServerUrl(serverUrl)
@@ -529,6 +821,18 @@ class AuthServerViewModel @Inject constructor(
 
     private fun cleanServerUrl(url: String): String = serverConnectionManager.normalizeUrl(url)
 
+    private fun getDisplayName(context: Context, uri: Uri): String? {
+        return context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (nameIndex != -1 && cursor.moveToFirst()) {
+                    cursor.getString(nameIndex)
+                } else {
+                    null
+                }
+            }
+    }
+
     fun clearError() {
         _state.value = _state.value.copy(error = null)
     }
@@ -537,7 +841,8 @@ class AuthServerViewModel @Inject constructor(
         _state.value = _state.value.copy(
             isConnected = false,
             isLoading = false,
-            error = null
+            error = null,
+            mtlsError = null
         )
     }
 
@@ -545,3 +850,14 @@ class AuthServerViewModel @Inject constructor(
         private const val LOGIN_TIMEOUT_MESSAGE = "Login timed out. Please try again."
     }
 }
+
+@Serializable
+private data class ServerPushPayload(
+    val serverUrl: String,
+    val port: Int,
+    val connectionType: String,
+    val fullUrl: String,
+    val mediaToken: String,
+    val mTLS: Boolean,
+    val password: String
+)

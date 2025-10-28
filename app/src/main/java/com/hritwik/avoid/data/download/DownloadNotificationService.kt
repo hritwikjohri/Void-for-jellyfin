@@ -16,6 +16,7 @@ import androidx.media3.common.util.UnstableApi
 import coil.Coil
 import coil.request.ImageRequest
 import com.hritwik.avoid.R
+import com.hritwik.avoid.utils.helpers.DownloadDisplayFormatter
 import com.hritwik.avoid.utils.helpers.FileHelper
 import com.hritwik.avoid.utils.helpers.ImageHelper
 import com.hritwik.avoid.MainActivity
@@ -108,17 +109,9 @@ class DownloadNotificationService : Service() {
                 mediaItem.name
             }
 
-            val progressInt = info.progress.roundToInt()
-            val progressFormatted = String.format("%.1f", info.progress)
             val status = info.status
-
-            val contentText = when (status) {
-                DownloadService.DownloadStatus.COMPLETED -> context.getString(R.string.download_complete)
-                DownloadService.DownloadStatus.PAUSED -> "${context.getString(R.string.paused)} • $progressFormatted%"
-                DownloadService.DownloadStatus.DOWNLOADING -> "${context.getString(R.string.downloading)} • $progressFormatted%"
-                DownloadService.DownloadStatus.QUEUED -> context.getString(R.string.queued)
-                DownloadService.DownloadStatus.FAILED -> context.getString(R.string.download_failed)
-            }
+            val progressInt = info.progress.roundToInt()
+            val contentText = DownloadDisplayFormatter.formatStatus(context, info)
 
             val builder = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setContentTitle(displayTitle)
@@ -132,8 +125,14 @@ class DownloadNotificationService : Service() {
             if (status != DownloadService.DownloadStatus.COMPLETED &&
                 status != DownloadService.DownloadStatus.FAILED
             ) {
-                
-                builder.setProgress(100, progressInt, status == DownloadService.DownloadStatus.QUEUED)
+                val indeterminate = status == DownloadService.DownloadStatus.QUEUED ||
+                    DownloadDisplayFormatter.isProgressIndeterminate(info)
+
+                if (indeterminate) {
+                    builder.setProgress(0, 0, true)
+                } else {
+                    builder.setProgress(100, progressInt, false)
+                }
 
                 val pauseResumeText = when (status) {
                     DownloadService.DownloadStatus.DOWNLOADING -> context.getString(R.string.pause)
@@ -221,17 +220,9 @@ class DownloadNotificationService : Service() {
                 mediaItem.name
             }
 
-            val progressInt = info.progress.roundToInt()
-            val progressFormatted = String.format("%.1f", info.progress)
             val status = info.status
-
-            val contentText = when (status) {
-                DownloadService.DownloadStatus.COMPLETED -> context.getString(R.string.download_complete)
-                DownloadService.DownloadStatus.PAUSED -> "${context.getString(R.string.paused)} • $progressFormatted%"
-                DownloadService.DownloadStatus.DOWNLOADING -> "${context.getString(R.string.downloading)} • $progressFormatted%"
-                DownloadService.DownloadStatus.QUEUED -> context.getString(R.string.queued)
-                DownloadService.DownloadStatus.FAILED -> context.getString(R.string.download_failed)
-            }
+            val progressInt = info.progress.roundToInt()
+            val contentText = DownloadDisplayFormatter.formatStatus(context, info)
 
             val builder = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setContentTitle(displayTitle)
@@ -245,8 +236,14 @@ class DownloadNotificationService : Service() {
             if (status != DownloadService.DownloadStatus.COMPLETED &&
                 status != DownloadService.DownloadStatus.FAILED
             ) {
-                
-                builder.setProgress(100, progressInt, status == DownloadService.DownloadStatus.QUEUED)
+                val indeterminate = status == DownloadService.DownloadStatus.QUEUED ||
+                    DownloadDisplayFormatter.isProgressIndeterminate(info)
+
+                if (indeterminate) {
+                    builder.setProgress(0, 0, true)
+                } else {
+                    builder.setProgress(100, progressInt, false)
+                }
 
                 val pauseResumeText = when (status) {
                     DownloadService.DownloadStatus.DOWNLOADING -> context.getString(R.string.pause)

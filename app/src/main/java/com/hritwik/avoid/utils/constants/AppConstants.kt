@@ -27,4 +27,8 @@ object AppConstants {
     const val THUMBNAIL_ASPECT_RATIO = 16f / 9f
     const val SQUARE_ASPECT_RATIO = 1f
     const val RESUME_COMPLETION_THRESHOLD = 10_000_000L
+    const val TMDB_BACKDROP_BASE = "https://image.tmdb.org/t/p/w780"
+    const val TMDB_POSTER_BASE = "https://image.tmdb.org/t/p/w500"
+    const val TMDB_PROFILE_BASE = "https://image.tmdb.org/t/p/w185"
+    const val TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500"
 }

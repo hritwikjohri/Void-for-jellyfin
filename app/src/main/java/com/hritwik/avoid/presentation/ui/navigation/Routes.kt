@@ -16,6 +16,8 @@ object Routes {
     const val EDIT_PROFILE = "edit_profile"
     const val CHANGE_PASSWORD = "change_password"
     const val CONNECTION_DASHBOARD = "connection_dashboard"
+    const val TV_LOGIN = "tv_login"
+    const val QR_SCANNER = "qr_scanner"
     const val ABOUT_VOID = "about_void"
     const val LIBRARY_DETAIL = "library_detail/{libraryId}/{libraryName}"
     const val COLLECTION_DETAIL = "collection_detail/{collectionId}/{collectionName}"

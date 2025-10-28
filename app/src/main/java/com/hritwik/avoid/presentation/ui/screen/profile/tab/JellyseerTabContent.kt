@@ -3,6 +3,8 @@ package com.hritwik.avoid.presentation.ui.screen.profile.tab
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -42,9 +44,14 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import com.hritwik.avoid.domain.model.jellyseer.JellyseerConfig
 import com.hritwik.avoid.presentation.viewmodel.user.UserDataViewModel
 import com.hritwik.avoid.presentation.ui.theme.PrimaryText
@@ -69,6 +76,7 @@ fun JellyseerTabContent(
     var password by remember { mutableStateOf("") }
     var apiKey by remember { mutableStateOf(config.apiKey) }
     var showPassword by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
 
     LaunchedEffect(config.baseUrl) {
         if (config.baseUrl != baseUrl) {
@@ -124,13 +132,18 @@ fun JellyseerTabContent(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().clickable(
+            indication = null,
+            interactionSource = remember { MutableInteractionSource() }
+        ) {
+            focusManager.clearFocus()
+        },
         contentPadding = PaddingValues(calculateRoundedValue(16).sdp),
         verticalArrangement = Arrangement.spacedBy(calculateRoundedValue(16).sdp)
     ) {
         item {
             Text(
-                text = "Jellyseer Integration",
+                text = "JellySeer",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = PrimaryText,
@@ -162,7 +175,7 @@ fun JellyseerTabContent(
                             color = PrimaryText
                         )
                         Text(
-                            text = "Enter the Jellyseer server URL (for example, https://requests.example.com).",
+                            text = "Enter the JellySeer server URL (for example, https://requests.example.com).",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -179,7 +192,21 @@ fun JellyseerTabContent(
                             Icon(imageVector = Icons.Filled.Cloud, contentDescription = null)
                         },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(
+                            onDone = { focusManager.clearFocus() }
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(calculateRoundedValue(28).sdp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.6f),
+                            focusedLabelColor = MaterialTheme.colorScheme.primary,
+                            unfocusedLabelColor = Color.White.copy(alpha = 0.8f),
+                            cursorColor = MaterialTheme.colorScheme.primary,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        )
                     )
 
                     Text(
@@ -220,7 +247,7 @@ fun JellyseerTabContent(
                             color = PrimaryText
                         )
                         Text(
-                            text = "Sign in with your Jellyfin credentials to link your Jellyseer account.",
+                            text = "Login with your Jellyfin credentials.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -240,13 +267,27 @@ fun JellyseerTabContent(
                         label = { Text("Username") },
                         singleLine = true,
                         leadingIcon = { Icon(imageVector = Icons.Outlined.Person, contentDescription = null) },
-                        modifier = Modifier.fillMaxWidth()
+                        keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(
+                            onDone = { focusManager.clearFocus() }
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(calculateRoundedValue(28).sdp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.6f),
+                            focusedLabelColor = MaterialTheme.colorScheme.primary,
+                            unfocusedLabelColor = Color.White.copy(alpha = 0.8f),
+                            cursorColor = MaterialTheme.colorScheme.primary,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        )
                     )
 
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it },
-                        label = { Text("Password") },
+                        label = { Text("Password (optional)") },
                         singleLine = true,
                         leadingIcon = { Icon(imageVector = Icons.Filled.Lock, contentDescription = null) },
                         trailingIcon = {
@@ -258,7 +299,21 @@ fun JellyseerTabContent(
                             }
                         },
                         visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth()
+                        keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(
+                            onDone = { focusManager.clearFocus() }
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(calculateRoundedValue(28).sdp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.6f),
+                            focusedLabelColor = MaterialTheme.colorScheme.primary,
+                            unfocusedLabelColor = Color.White.copy(alpha = 0.8f),
+                            cursorColor = MaterialTheme.colorScheme.primary,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        )
                     )
 
                     Button(
@@ -349,7 +404,21 @@ fun JellyseerTabContent(
                         label = { Text("API Key") },
                         leadingIcon = { Icon(imageVector = Icons.Outlined.Key, contentDescription = null) },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(
+                            onDone = { focusManager.clearFocus() }
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(calculateRoundedValue(28).sdp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.6f),
+                            focusedLabelColor = MaterialTheme.colorScheme.primary,
+                            unfocusedLabelColor = Color.White.copy(alpha = 0.8f),
+                            cursorColor = MaterialTheme.colorScheme.primary,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        )
                     )
                 }
             }

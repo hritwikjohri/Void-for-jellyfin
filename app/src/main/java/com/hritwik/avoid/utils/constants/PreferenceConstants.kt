@@ -12,6 +12,9 @@ object PreferenceConstants {
     const val KEY_SERVER_VERSION = "server_version"
     const val KEY_SERVER_CONNECTED = "server_connected"
     const val KEY_SERVER_CONNECTIONS = "server_connections"
+    const val KEY_MTLS_ENABLED = "mtls_enabled"
+    const val KEY_MTLS_CERTIFICATE_NAME = "mtls_certificate_name"
+    const val KEY_MTLS_CERTIFICATE_PASSWORD = "mtls_certificate_password"
     const val KEY_OFFLINE_MODE = "offline_mode"
 
     const val KEY_USERNAME = "username"
@@ -93,7 +96,7 @@ object PreferenceConstants {
 
     const val DEFAULT_THEME_MODE = "dark"
     const val DEFAULT_DYNAMIC_COLORS = false
-    const val DEFAULT_AUTO_PLAY = false
+    const val DEFAULT_AUTO_PLAY = true
     const val DEFAULT_CONTINUE_WATCHING = true
     const val DEFAULT_DOWNLOAD_QUALITY = "1080p"
     const val DEFAULT_DOWNLOAD_CODEC = "h264"
@@ -119,6 +122,7 @@ object PreferenceConstants {
     const val DEFAULT_PREFERRED_LANGUAGE = "en"
     const val DEFAULT_GESTURE_CONTROLS = true
     const val DEFAULT_HIGH_CONTRAST = false
+    const val DEFAULT_MTLS_ENABLED = false
     const val DEFAULT_FIRST_RUN_COMPLETED = false
     const val DEFAULT_DISPLAY_MODE = "Fit Screen"
     const val SKIP_PROMPT_FLOATING_DURATION_MS = 5_000L

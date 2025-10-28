@@ -1,9 +1,11 @@
 package com.hritwik.avoid.di
 
+import com.hritwik.avoid.data.network.MtlsCertificateProvider
 import javax.inject.Qualifier
 import javax.inject.Singleton
 import dagger.Module
 import dagger.Provides
+import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineScope
@@ -30,4 +32,10 @@ object CoroutineModule {
     @Singleton
     @WebSocketScope
     fun provideWebSocketScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+}
+
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface PlayerNetworkEntryPoint {
+    fun mtlsCertificateProvider(): MtlsCertificateProvider
 }

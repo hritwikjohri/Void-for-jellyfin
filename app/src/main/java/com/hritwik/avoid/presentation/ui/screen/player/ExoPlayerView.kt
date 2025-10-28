@@ -105,6 +105,7 @@ fun ExoPlayerView(
     userId: String,
     accessToken: String,
     serverUrl: String,
+    autoPlayNextEpisode: Boolean,
     autoSkipSegments: Boolean,
     gesturesEnabled: Boolean,
     onBackClick: () -> Unit,
@@ -117,6 +118,7 @@ fun ExoPlayerView(
     val currentMediaItem = playerState.mediaItem ?: mediaItem
     val latestMediaItem by rememberUpdatedState(currentMediaItem)
     val hasNextEpisode by rememberUpdatedState(playerState.hasNextEpisode)
+    val autoPlayNext by rememberUpdatedState(autoPlayNextEpisode)
     val playbackOffsetMs by rememberUpdatedState(playerState.playbackOffsetMs)
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val audioFocusRequest = rememberAudioFocusRequest(audioManager)
@@ -569,9 +571,9 @@ fun ExoPlayerView(
                                 isCompleted = true
                             )
                             viewModel.markAsWatched(latestMediaItem.id, userId)
-                            if (hasNextEpisode) {
+                            if (hasNextEpisode && autoPlayNext) {
                                 viewModel.playNextEpisode()
-                            } else {
+                            } else if (!hasNextEpisode) {
                                 onBackClick()
                                 audioManager.abandonAudioFocusRequest(audioFocusRequest)
                             }

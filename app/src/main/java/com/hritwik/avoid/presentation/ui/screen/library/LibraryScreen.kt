@@ -43,15 +43,43 @@ fun LibraryScreen(
     val gridState = rememberSaveable(libraryId, saver = LazyGridState.Saver) { LazyGridState() }
     val genresState by libraryViewModel.genresState.collectAsStateWithLifecycle()
     val libraryState by libraryViewModel.libraryState.collectAsStateWithLifecycle()
+    val sortPreferences by libraryViewModel.librarySortPreferences.collectAsStateWithLifecycle()
     val currentGenresState = genresState[libraryId] ?: LibraryGenresState()
+    val savedSortPreference = sortPreferences[libraryId]
 
-    var selectedSortId by rememberSaveable(libraryId) { mutableStateOf(LibrarySortOptions.SortName.id) }
+    var selectedSortId by rememberSaveable(libraryId) {
+        mutableStateOf(savedSortPreference?.sortId ?: LibrarySortOptions.SortName.id)
+    }
     val selectedSortOption = remember(selectedSortId) {
         LibrarySortOptions.All.firstOrNull { it.id == selectedSortId } ?: LibrarySortOptions.SortName
     }
-    var sortDirectionName by rememberSaveable(libraryId) { mutableStateOf(selectedSortOption.defaultDirection.name) }
-    LaunchedEffect(selectedSortOption.id) {
-        sortDirectionName = selectedSortOption.defaultDirection.name
+    var sortDirectionName by rememberSaveable(libraryId) {
+        mutableStateOf(
+            savedSortPreference?.sortDirection?.name ?: selectedSortOption.defaultDirection.name
+        )
+    }
+    LaunchedEffect(savedSortPreference) {
+        savedSortPreference?.let { preference ->
+            if (selectedSortId != preference.sortId) {
+                selectedSortId = preference.sortId
+            }
+            val preferenceDirection = preference.sortDirection.name
+            if (sortDirectionName != preferenceDirection) {
+                sortDirectionName = preferenceDirection
+            }
+        }
+    }
+    LaunchedEffect(selectedSortId, sortDirectionName) {
+        val direction = runCatching { LibrarySortDirection.valueOf(sortDirectionName) }
+            .getOrDefault(selectedSortOption.defaultDirection)
+        val preference = libraryViewModel.getLibrarySortPreference(libraryId)
+        if (preference?.sortId != selectedSortId || preference.sortDirection != direction) {
+            libraryViewModel.updateLibrarySortPreference(
+                libraryId = libraryId,
+                sortId = selectedSortId,
+                sortDirection = direction
+            )
+        }
     }
     val sortDirection = runCatching { LibrarySortDirection.valueOf(sortDirectionName) }
         .getOrDefault(selectedSortOption.defaultDirection)
@@ -93,9 +121,10 @@ fun LibraryScreen(
 
     val pagerGeneration by libraryViewModel.pagerGeneration.collectAsStateWithLifecycle()
 
-    val handleBack = remember(onBackClick, libraryViewModel) {
+    val handleBack = remember(onBackClick, libraryViewModel, libraryId) {
         {
             libraryViewModel.invalidateLibraryPagerCache()
+            libraryViewModel.clearLibrarySortPreference(libraryId)
             onBackClick()
         }
     }
@@ -134,7 +163,10 @@ fun LibraryScreen(
                 sortOptions = LibrarySortOptions.All,
                 selectedSort = selectedSortOption,
                 sortDirection = sortDirection,
-                onSortSelected = { option -> selectedSortId = option.id },
+                onSortSelected = { option ->
+                    selectedSortId = option.id
+                    sortDirectionName = option.defaultDirection.name
+                },
                 onSortDirectionChange = { direction -> sortDirectionName = direction.name },
                 genres = currentGenresState.genres,
                 selectedGenre = selectedGenre,

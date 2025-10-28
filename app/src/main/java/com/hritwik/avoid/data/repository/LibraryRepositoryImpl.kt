@@ -1158,6 +1158,34 @@ class LibraryRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun getMediaCredits(
+        userId: String,
+        mediaId: String,
+        accessToken: String
+    ): NetworkResult<List<Person>> {
+        val serverUrl = getServerUrl()
+        return safeApiCall(serverUrl) {
+            val apiService = createApiService(serverUrl)
+
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
+            val credits = apiService.getItemCredits(
+                itemId = mediaId,
+                userId = userId,
+                authorization = authHeader
+            )
+
+            credits.map { personDto ->
+                Person(
+                    id = personDto.id,
+                    name = personDto.name ?: "Unknown",
+                    role = personDto.role,
+                    type = personDto.type,
+                    primaryImageTag = personDto.primaryImageTag
+                )
+            }
+        }
+    }
+
     override suspend fun getRelatedResourcesBatch(
         mediaId: String,
         userId: String,

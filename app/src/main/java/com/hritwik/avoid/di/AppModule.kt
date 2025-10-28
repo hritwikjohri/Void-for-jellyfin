@@ -3,9 +3,10 @@ package com.hritwik.avoid.di
 import android.content.Context
 import com.hritwik.avoid.data.local.PreferencesManager
 import com.hritwik.avoid.data.network.CdnInterceptor
-import com.hritwik.avoid.data.network.PriorityDispatcher
-import com.hritwik.avoid.data.network.OfflineCacheInterceptor
 import com.hritwik.avoid.data.network.LocalNetworkSslHelper
+import com.hritwik.avoid.data.network.MtlsCertificateProvider
+import com.hritwik.avoid.data.network.OfflineCacheInterceptor
+import com.hritwik.avoid.data.network.PriorityDispatcher
 import com.hritwik.avoid.utils.helpers.ConnectivityObserver
 import com.hritwik.avoid.utils.helpers.NetworkMonitor
 import com.hritwik.avoid.utils.constants.AppConstants
@@ -38,11 +39,12 @@ object AppModule {
         loggingInterceptor: HttpLoggingInterceptor,
         cdnInterceptor: CdnInterceptor,
         offlineCacheInterceptor: OfflineCacheInterceptor,
-        connectionPool: ConnectionPool
+        connectionPool: ConnectionPool,
+        mtlsCertificateProvider: MtlsCertificateProvider,
     ): OkHttpClient {
         val cacheDir = File(context.cacheDir, AppConstants.HTTP_CACHE_DIR)
         val cache = Cache(cacheDir, AppConstants.HTTP_CACHE_SIZE)
-        val sslConfig = LocalNetworkSslHelper.sslConfig
+        val sslConfig = LocalNetworkSslHelper.createSslConfig(mtlsCertificateProvider.keyManager())
 
         return OkHttpClient.Builder()
             .sslSocketFactory(sslConfig.sslSocketFactory, sslConfig.trustManager)
@@ -75,11 +77,12 @@ object AppModule {
         @ApplicationContext context: Context,
         cdnInterceptor: CdnInterceptor,
         offlineCacheInterceptor: OfflineCacheInterceptor,
-        connectionPool: ConnectionPool
+        connectionPool: ConnectionPool,
+        mtlsCertificateProvider: MtlsCertificateProvider,
     ): OkHttpClient {
         val cacheDir = File(context.cacheDir, AppConstants.HTTP_CACHE_DIR)
         val cache = Cache(cacheDir, AppConstants.HTTP_CACHE_SIZE)
-        val sslConfig = LocalNetworkSslHelper.sslConfig
+        val sslConfig = LocalNetworkSslHelper.createSslConfig(mtlsCertificateProvider.keyManager())
 
         return OkHttpClient.Builder()
             .sslSocketFactory(sslConfig.sslSocketFactory, sslConfig.trustManager)

@@ -57,6 +57,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.util.UnstableApi
 import com.hritwik.avoid.data.network.LocalNetworkSslHelper
+import com.hritwik.avoid.di.PlayerNetworkEntryPoint
 import com.hritwik.avoid.domain.model.library.MediaItem
 import com.hritwik.avoid.domain.model.media.MediaStream
 import com.hritwik.avoid.domain.model.playback.DecoderMode
@@ -72,19 +73,22 @@ import com.hritwik.avoid.presentation.ui.state.VideoPlaybackState
 import com.hritwik.avoid.presentation.ui.theme.Minsk
 import com.hritwik.avoid.presentation.viewmodel.player.VideoPlaybackViewModel
 import com.hritwik.avoid.presentation.viewmodel.user.UserDataViewModel
-import com.hritwik.avoid.utils.constants.ApiConstants
 import com.hritwik.avoid.utils.RuntimeConfig
+import com.hritwik.avoid.utils.constants.ApiConstants
+import com.hritwik.avoid.utils.constants.MpvConstants
 import com.hritwik.avoid.utils.constants.PreferenceConstants.SKIP_PROMPT_FLOATING_DURATION_MS
 import com.hritwik.avoid.utils.extensions.getSubtitleUrl
 import com.hritwik.avoid.utils.extensions.toSubtitleFileExtension
 import com.hritwik.avoid.utils.helpers.calculateRoundedValue
+import com.hritwik.avoid.utils.helpers.hideNavigationButtons
+import dagger.hilt.android.EntryPointAccessors
 import dev.marcelsoftware.mpvcompose.DefaultLogObserver
 import dev.marcelsoftware.mpvcompose.MPVLib
 import dev.marcelsoftware.mpvcompose.MPVPlayer
 import ir.kaaveh.sdpcompose.sdp
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -108,6 +112,7 @@ fun MpvPlayerView(
     userId: String,
     accessToken: String,
     serverUrl: String,
+    autoPlayNextEpisode: Boolean,
     autoSkipSegments: Boolean,
     gesturesEnabled: Boolean,
     onBackClick: () -> Unit,
@@ -116,15 +121,31 @@ fun MpvPlayerView(
 ) {
     val activity = LocalActivity.current
     val context = LocalContext.current
+    var mpvConfigFile by remember { mutableStateOf<File?>(null) }
+
+    LaunchedEffect(context) {
+        val ensuredFile = withContext(Dispatchers.IO) { ensureMpvConfigFile(context) }
+        mpvConfigFile = ensuredFile
+    }
     val currentMediaItem = playerState.mediaItem ?: mediaItem
     val latestMediaItem by rememberUpdatedState(currentMediaItem)
     val hasNextEpisode by rememberUpdatedState(playerState.hasNextEpisode)
+    val autoPlayNext by rememberUpdatedState(autoPlayNextEpisode)
     val lifecycleOwner = LocalLifecycleOwner.current
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val audioFocusRequest = rememberAudioFocusRequest(audioManager)
     val scope = rememberCoroutineScope()
-    val subtitleHttpClient = remember {
-        val sslConfig = LocalNetworkSslHelper.sslConfig
+    val appContext = remember(context.applicationContext) { context.applicationContext }
+    val mtlsProvider = remember(appContext) {
+        EntryPointAccessors.fromApplication(
+            appContext,
+            PlayerNetworkEntryPoint::class.java
+        ).mtlsCertificateProvider()
+    }
+    val sslConfig = remember(mtlsProvider) {
+        LocalNetworkSslHelper.createSslConfig(mtlsProvider.keyManager())
+    }
+    val subtitleHttpClient = remember(sslConfig) {
         OkHttpClient.Builder()
             .sslSocketFactory(sslConfig.sslSocketFactory, sslConfig.trustManager)
             .hostnameVerifier(sslConfig.hostnameVerifier)
@@ -138,6 +159,12 @@ fun MpvPlayerView(
         metrics.widthPixels.toFloat() / metrics.heightPixels.toFloat()
     }
     var showControls by remember { mutableStateOf(true) }
+    LaunchedEffect(activity) {
+        activity?.hideNavigationButtons()
+    }
+    LaunchedEffect(showControls) {
+        activity?.hideNavigationButtons()
+    }
     var isPlaying by remember { mutableStateOf(true) }
     var resumeOnStart by remember { mutableStateOf(false) }
     var playbackDuration by remember { mutableLongStateOf(1L) }
@@ -276,6 +303,7 @@ fun MpvPlayerView(
                 showControls = false
             }
             if (event == Lifecycle.Event.ON_RESUME && activity?.isInPictureInPictureMode == false) {
+                activity.hideNavigationButtons()
                 showControls = true
             }
             if ((event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) && activity?.isInPictureInPictureMode == false) {
@@ -459,7 +487,8 @@ fun MpvPlayerView(
 
     LaunchedEffect(showControls) {
         if (showControls) {
-            windowInsetsController?.show(WindowInsetsCompat.Type.systemBars())
+            windowInsetsController?.show(WindowInsetsCompat.Type.statusBars())
+            windowInsetsController?.hide(WindowInsetsCompat.Type.navigationBars())
         } else {
             windowInsetsController?.hide(WindowInsetsCompat.Type.systemBars())
         }
@@ -699,13 +728,17 @@ fun MpvPlayerView(
                 isMpvInitialized = true
                 handleDisplayModeChange(displayMode)
 
+                val resolvedConfigFile = mpvConfigFile
+                    ?: ensureMpvConfigFile(context).also { mpvConfigFile = it }
+
                 when (decoderMode) {
                     DecoderMode.HARDWARE_ONLY -> {
                         MPVLib.setOptionString("hwdec", "mediacodec-copy")
                         MPVLib.setOptionString("vo", "gpu-next")
                         MPVLib.setOptionString("vd-lavc-software-fallback", "no")
                         MPVLib.setOptionString("cache", "yes")
-                        MPVLib.setOptionString("demuxer-max-bytes", (100 * 1024 * 1024).toString()) 
+                        MPVLib.setOptionString("demuxer-max-bytes", (100 * 1024 * 1024).toString())
+                        applyManualMpvDefaults()
                     }
                     DecoderMode.SOFTWARE_ONLY -> {
                         MPVLib.setOptionString("hwdec", "no")
@@ -714,24 +747,12 @@ fun MpvPlayerView(
                         MPVLib.setOptionString("gpu-api", "opengl")
                         MPVLib.setOptionString("cache", "yes")
                         MPVLib.setOptionString("demuxer-max-bytes", (100 * 1024 * 1024).toString())
+                        applyManualMpvDefaults()
                     }
                     else -> {
-                        MPVLib.setOptionString("hwdec", "auto")
-                        MPVLib.setOptionString("vd-lavc-software-fallback", "yes")
-                        MPVLib.setOptionString("cache", "yes")
-                        MPVLib.setOptionString("demuxer-max-bytes", (100 * 1024 * 1024).toString())
+                        applyMpvConfigFromFile(resolvedConfigFile)
                     }
                 }
-
-                MPVLib.setOptionString("vd-lavc-assume-old-x264", "yes")
-                MPVLib.setOptionString("codec-profile", "custom")
-                MPVLib.setOptionString("vd-lavc-check-hw-profile", "no")
-                MPVLib.setOptionString("vd-lavc-codec-whitelist", "h264,hevc,vp8,vp9,av1,mpeg2video,mpeg4")
-
-                MPVLib.setOptionString("sub-codepage", "auto")
-                MPVLib.setOptionString("sub-fix-timing", "yes")
-                MPVLib.setOptionString("blend-subtitles", "yes")
-                MPVLib.setOptionString("sub-forced-only", "no")
 
                 currentAudioTrack?.let { audioIndex ->
                     audioIndexToMpvTrackIds[audioIndex]?.let { mpvAudioId ->
@@ -799,9 +820,9 @@ fun MpvPlayerView(
                                 isCompleted = true
                             )
                             videoPlaybackViewModel.markAsWatched(latestMediaItem.id, userId)
-                            if (hasNextEpisode) {
+                            if (hasNextEpisode && autoPlayNext) {
                                 videoPlaybackViewModel.playNextEpisode()
-                            } else if (latestMediaItem.type == ApiConstants.ITEM_TYPE_EPISODE) {
+                            } else if (!hasNextEpisode && latestMediaItem.type == ApiConstants.ITEM_TYPE_EPISODE) {
                                 onBackClick()
                             }
                         }
@@ -1139,6 +1160,54 @@ private suspend fun ensureExternalSubtitleFile(
     }
 
     return downloaded
+}
+
+private fun ensureMpvConfigFile(context: Context): File {
+    val directory = File(context.filesDir, MpvConstants.CONFIG_DIRECTORY)
+    if (!directory.exists()) {
+        directory.mkdirs()
+    }
+    val file = File(directory, MpvConstants.CONFIG_FILE_NAME)
+    if (!file.exists() || file.length() == 0L) {
+        file.writeText(MpvConstants.DEFAULT_CONFIG)
+    }
+    return file
+}
+
+private fun applyMpvConfigFromFile(configFile: File) {
+    if (!configFile.exists()) {
+        return
+    }
+    runCatching {
+        configFile.useLines { lines ->
+            lines.forEach { rawLine ->
+                val line = rawLine.trim()
+                if (line.isEmpty() || line.startsWith("#")) {
+                    return@forEach
+                }
+                val parts = line.split('=', limit = 2)
+                val key = parts.getOrNull(0)?.trim().orEmpty()
+                if (key.isEmpty()) {
+                    return@forEach
+                }
+                val value = parts.getOrNull(1)?.trim().orEmpty()
+                MPVLib.setOptionString(key, value)
+            }
+        }
+    }.onFailure { error ->
+        Log.e("MpvPlayerView", "Failed to apply mpv config", error)
+    }
+}
+
+private fun applyManualMpvDefaults() {
+    MPVLib.setOptionString("vd-lavc-assume-old-x264", "yes")
+    MPVLib.setOptionString("codec-profile", "custom")
+    MPVLib.setOptionString("vd-lavc-check-hw-profile", "no")
+    MPVLib.setOptionString("vd-lavc-codec-whitelist", "h264,hevc,vp8,vp9,av1,mpeg2video,mpeg4")
+    MPVLib.setOptionString("sub-codepage", "auto")
+    MPVLib.setOptionString("sub-fix-timing", "yes")
+    MPVLib.setOptionString("blend-subtitles", "yes")
+    MPVLib.setOptionString("sub-forced-only", "no")
 }
 
 private suspend fun downloadExternalSubtitle(

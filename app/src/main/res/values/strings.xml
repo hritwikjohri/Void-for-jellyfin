@@ -10,6 +10,24 @@
     <string name="download_channel_name">Downloads</string>
     <string name="download_channel_description">Download progress notifications</string>
     <string name="download_failed">Download failed</string>
+    <string name="transcoding">Transcoding</string>
+    <string name="download_downloading_with_total">Downloading • %1$s / %2$s (%3$s%%)</string>
+    <string name="download_downloading_partial">Downloading • %1$s</string>
+    <string name="download_paused_with_total">Paused • %1$s / %2$s (%3$s%%)</string>
+    <string name="download_paused_partial">Paused • %1$s</string>
+    <string name="download_transcoding_with_size">Transcoding • %1$s</string>
+    <plurals name="download_summary_downloading">
+        <item quantity="one">%d download in progress</item>
+        <item quantity="other">%d downloads in progress</item>
+    </plurals>
+    <plurals name="download_summary_queued">
+        <item quantity="one">%d download queued</item>
+        <item quantity="other">%d downloads queued</item>
+    </plurals>
+    <plurals name="download_summary_paused">
+        <item quantity="one">%d download paused</item>
+        <item quantity="other">%d downloads paused</item>
+    </plurals>
     <string name="download_limit_reached">Download limit reached</string>
     <string name="download_limit_reached_message">Cannot start new download. Storage limit reached.</string>
     <string name="data_limit_reached">Data limit reached</string>

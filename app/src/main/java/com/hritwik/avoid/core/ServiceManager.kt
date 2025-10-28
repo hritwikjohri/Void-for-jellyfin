@@ -95,6 +95,10 @@ class ServiceManager @Inject constructor(
         DownloadService.resumeDownload(context, id)
     }
 
+    fun resumeAllDownloads() {
+        DownloadService.resumeAllDownloads(context)
+    }
+
     fun cancelDownload(id: String) {
         DownloadService.cancelDownload(context, id)
     }

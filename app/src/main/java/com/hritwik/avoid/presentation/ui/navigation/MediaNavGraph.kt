@@ -290,7 +290,8 @@ fun NavGraphBuilder.mediaGraph(
                         request = request,
                         serverUrl = session.server.url,
                         accessToken = session.accessToken,
-                        mediaSourceId = mediaSourceId
+                        mediaSourceId = mediaSourceId,
+                        userId = session.userId.id
                     )
                 }
             },
@@ -327,7 +328,8 @@ fun NavGraphBuilder.mediaGraph(
                         request = request,
                         serverUrl = session.server.url,
                         accessToken = session.accessToken,
-                        mediaSourceId = mediaSourceId
+                        mediaSourceId = mediaSourceId,
+                        userId = session.userId.id
                     )
                 }
             },
@@ -367,7 +369,8 @@ fun NavGraphBuilder.mediaGraph(
                         request = request,
                         serverUrl = session.server.url,
                         accessToken = session.accessToken,
-                        mediaSourceId = mediaSourceId
+                        mediaSourceId = mediaSourceId,
+                        userId = session.userId.id
                     )
                 }
             },
@@ -420,7 +423,8 @@ fun NavGraphBuilder.mediaGraph(
                         request = request,
                         serverUrl = session.server.url,
                         accessToken = session.accessToken,
-                        mediaSourceId = mediaSourceId
+                        mediaSourceId = mediaSourceId,
+                        userId = session.userId.id
                     )
                 }
             },
@@ -457,7 +461,8 @@ fun NavGraphBuilder.mediaGraph(
                         request = request,
                         serverUrl = session.server.url,
                         accessToken = session.accessToken,
-                        mediaSourceId = mediaSourceId
+                        mediaSourceId = mediaSourceId,
+                        userId = session.userId.id
                     )
                 }
             },

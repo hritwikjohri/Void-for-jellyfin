@@ -15,7 +15,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.outlined.Cloud
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,10 +23,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import com.hritwik.avoid.data.connection.ServerConnectionEvent
 import com.hritwik.avoid.presentation.ui.components.common.ScreenHeader
+import com.hritwik.avoid.presentation.ui.components.common.SubtleShinySignature
+import com.hritwik.avoid.presentation.ui.components.visual.AnimatedAmbientBackground
 import com.hritwik.avoid.utils.extensions.clearFocusOnTap
 import com.hritwik.avoid.utils.helpers.calculateRoundedValue
 import ir.kaaveh.sdpcompose.sdp
@@ -50,8 +49,6 @@ fun ConnectionDashboardScreen(
     var remoteInputs by remember { mutableStateOf(remoteConnections.ifEmpty { listOf("") }) }
     var isRefreshing by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    val focusManager = LocalFocusManager.current
-    val keyboardController = LocalSoftwareKeyboardController.current
     val scrollState = rememberScrollState()
 
     LaunchedEffect(localConnections) {
@@ -116,80 +113,86 @@ fun ConnectionDashboardScreen(
         remoteInputs.map { it.trim() }.filter { it.isNotEmpty() }
     }
 
-    Column (
-        modifier = Modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.ime)
-            .imePadding()
-            .clearFocusOnTap()
-    ){
-        ScreenHeader(
-            title = "Connection Dashboard",
-            onBackClick = onBackClick,
-            showBackButton = true
-        )
-
-        Column(
+    AnimatedAmbientBackground {
+        Column (
             modifier = Modifier
-                .verticalScroll(scrollState)
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.ime)
                 .imePadding()
-                .padding(horizontal = calculateRoundedValue(16).sdp)
-                .padding(bottom = calculateRoundedValue(16).sdp)
+                .clearFocusOnTap()
         ) {
-            ConnectionStatusCard(
-                isRefreshing = isRefreshing,
-                onRefreshClick = {
-                    isRefreshing = true
-                    onRefreshConnection()
-                }
+            ScreenHeader(
+                title = "Connection Dashboard",
+                onBackClick = onBackClick,
+                showBackButton = true
             )
 
-            Spacer(modifier = Modifier.height(calculateRoundedValue(20).sdp))
+            Column(
+                modifier = Modifier
+                    .verticalScroll(scrollState)
+                    .imePadding()
+                    .padding(horizontal = calculateRoundedValue(16).sdp)
+                    .padding(bottom = calculateRoundedValue(16).sdp)
+            ) {
+                ConnectionStatusCard(
+                    isRefreshing = isRefreshing,
+                    onRefreshClick = {
+                        isRefreshing = true
+                        onRefreshConnection()
+                    }
+                )
 
-            ConnectionSection(
-                title = "Local Network",
-                subtitle = "Add local IPs or hostnames for Wi-Fi connectivity",
-                icon = Icons.Default.Wifi,
-                iconTint = MaterialTheme.colorScheme.primary,
-                inputs = localInputs,
-                onInputChange = { index, value ->
-                    localInputs = localInputs.toMutableList().also { it[index] = value }
-                },
-                onMove = ::moveLocal,
-                onRemove = ::removeLocal,
-                onAdd = { localInputs = localInputs + "" },
-                onSave = { onLocalConnectionsSaved(sanitizedLocal) },
-                onClear = {
-                    localInputs = listOf("")
-                    onClearLocalConnections()
-                },
-                sanitizedInputs = sanitizedLocal,
-                savedConnections = localConnections,
-                labelPrefix = "Local address"
-            )
+                Spacer(modifier = Modifier.height(calculateRoundedValue(20).sdp))
 
-            Spacer(modifier = Modifier.height(calculateRoundedValue(20).sdp))
+                ConnectionSection(
+                    title = "Local Network",
+                    subtitle = "Add local IPs or hostnames for Wi-Fi connectivity",
+                    icon = Icons.Default.Wifi,
+                    inputs = localInputs,
+                    onInputChange = { index, value ->
+                        localInputs = localInputs.toMutableList().also { it[index] = value }
+                    },
+                    onMove = ::moveLocal,
+                    onRemove = ::removeLocal,
+                    onAdd = { localInputs = localInputs + "" },
+                    onSave = { onLocalConnectionsSaved(sanitizedLocal) },
+                    onClear = {
+                        localInputs = listOf("")
+                        onClearLocalConnections()
+                    },
+                    sanitizedInputs = sanitizedLocal,
+                    savedConnections = localConnections,
+                    labelPrefix = "Local address"
+                )
 
-            ConnectionSection(
-                title = "Internet",
-                subtitle = "Add public URLs for remote access",
-                icon = Icons.Outlined.Cloud,
-                iconTint = MaterialTheme.colorScheme.tertiary,
-                inputs = remoteInputs,
-                onInputChange = { index, value ->
-                    remoteInputs = remoteInputs.toMutableList().also { it[index] = value }
-                },
-                onMove = ::moveRemote,
-                onRemove = ::removeRemote,
-                onAdd = { remoteInputs = remoteInputs + "" },
-                onSave = { onRemoteConnectionsSaved(sanitizedRemote) },
-                onClear = {
-                    remoteInputs = listOf("")
-                    onClearRemoteConnections()
-                },
-                sanitizedInputs = sanitizedRemote,
-                savedConnections = remoteConnections,
-                labelPrefix = "Internet address"
+                Spacer(modifier = Modifier.height(calculateRoundedValue(20).sdp))
+
+                ConnectionSection(
+                    title = "Internet",
+                    subtitle = "Add public URLs for remote access",
+                    icon = Icons.Outlined.Cloud,
+                    inputs = remoteInputs,
+                    onInputChange = { index, value ->
+                        remoteInputs = remoteInputs.toMutableList().also { it[index] = value }
+                    },
+                    onMove = ::moveRemote,
+                    onRemove = ::removeRemote,
+                    onAdd = { remoteInputs = remoteInputs + "" },
+                    onSave = { onRemoteConnectionsSaved(sanitizedRemote) },
+                    onClear = {
+                        remoteInputs = listOf("")
+                        onClearRemoteConnections()
+                    },
+                    sanitizedInputs = sanitizedRemote,
+                    savedConnections = remoteConnections,
+                    labelPrefix = "Internet address"
+                )
+            }
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            SubtleShinySignature(
+                modifier = Modifier.padding(bottom = calculateRoundedValue(90).sdp)
             )
         }
     }

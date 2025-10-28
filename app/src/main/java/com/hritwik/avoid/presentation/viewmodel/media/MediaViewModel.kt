@@ -162,8 +162,23 @@ class MediaViewModel @Inject constructor(
             is NetworkResult.Success -> {
                 val sorted = result.data.sortedBy { it.indexNumber ?: Int.MAX_VALUE }
                 _state.value = _state.value.copy(seasons = sorted)
-                sorted.firstOrNull()?.let { season ->
-                    loadPlaybackItemForSeason(season.id, userId, accessToken)
+                val episodesBySeason = mutableMapOf<String, List<MediaItem>>()
+                val aggregatedEpisodes = mutableListOf<MediaItem>()
+                for (season in sorted) {
+                    val episodesResult = getEpisodesUseCase(
+                        GetEpisodesUseCase.Params(userId, season.id, accessToken)
+                    )
+                    if (episodesResult is NetworkResult.Success) {
+                        val sortedEpisodes = episodesResult.data
+                            .sortedBy { it.indexNumber ?: Int.MAX_VALUE }
+                        val withPlayedState = applyPlayedStateToEpisodes(sortedEpisodes)
+                        episodesBySeason[season.id] = withPlayedState
+                        aggregatedEpisodes += withPlayedState
+                    }
+                }
+                _state.value = _state.value.copy(episodesBySeasonId = episodesBySeason)
+                if (aggregatedEpisodes.isNotEmpty()) {
+                    updatePlaybackItemFromEpisodes(aggregatedEpisodes)
                 }
             }
             else -> { }

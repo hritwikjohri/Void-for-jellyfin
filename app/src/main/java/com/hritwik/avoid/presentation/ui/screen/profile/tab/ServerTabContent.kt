@@ -18,7 +18,6 @@ import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,7 +42,7 @@ fun ServerTabContent(
     isWifiConnected: Boolean,
     onSwitchUser: () -> Unit,
     onLogoutClick: () -> Unit,
-    onConnectionDashboard: () -> Unit
+    onConnectionDashboard: () -> Unit,
 ) {
     val serverActionsEnabled = !isOffline
     val offlineMessage = "Reconnect to manage server settings"

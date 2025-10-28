@@ -53,6 +53,7 @@ fun VideoPlayerScreen(
     val decoderMode = playbackSettings.decoderMode
     val displayMode = playbackSettings.displayMode
     val playerType = playbackSettings.playerType
+    val autoPlayNextEpisode = playbackSettings.autoPlayNextEpisode
     val autoSkipSegments = playbackSettings.autoSkipSegments
     val personalization by userDataViewModel.personalizationSettings.collectAsStateWithLifecycle()
     val gesturesEnabled = personalization.gesturesEnabled
@@ -123,6 +124,7 @@ fun VideoPlayerScreen(
                 userId = userId,
                 accessToken = accessToken,
                 serverUrl = serverUrl,
+                autoPlayNextEpisode = autoPlayNextEpisode,
                 autoSkipSegments = autoSkipSegments,
                 gesturesEnabled = gesturesEnabled,
                 onBackClick = onBackClick,
@@ -137,6 +139,7 @@ fun VideoPlayerScreen(
                 userId = userId,
                 accessToken = accessToken,
                 serverUrl = serverUrl,
+                autoPlayNextEpisode = autoPlayNextEpisode,
                 autoSkipSegments = autoSkipSegments,
                 gesturesEnabled = gesturesEnabled,
                 onBackClick = onBackClick,

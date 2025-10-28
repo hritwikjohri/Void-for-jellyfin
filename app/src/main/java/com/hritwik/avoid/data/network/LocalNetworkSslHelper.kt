@@ -5,15 +5,17 @@ import java.net.InetAddress
 import java.net.UnknownHostException
 import javax.net.ssl.HostnameVerifier
 import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.KeyManager
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLSession
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
-import javax.net.ssl.X509ExtendedTrustManager
-import javax.net.ssl.X509TrustManager
 import javax.net.ssl.TrustManager
 import javax.net.ssl.TrustManagerFactory
+import javax.net.ssl.X509ExtendedKeyManager
+import javax.net.ssl.X509ExtendedTrustManager
+import javax.net.ssl.X509TrustManager
 import kotlin.math.max
 import kotlin.math.min
 
@@ -31,11 +33,12 @@ object LocalNetworkSslHelper {
 
     private val defaultHostnameVerifier = HttpsURLConnection.getDefaultHostnameVerifier()
 
-    val sslConfig: LocalNetworkSslConfig by lazy {
+    fun createSslConfig(clientKeyManager: X509ExtendedKeyManager? = null): LocalNetworkSslConfig {
         val trustManager = LocalNetworkTrustManager(createDefaultTrustManager())
         val sslContext = SSLContext.getInstance("TLS")
-        sslContext.init(null, arrayOf<TrustManager>(trustManager), null)
-        LocalNetworkSslConfig(
+        val keyManagers = clientKeyManager?.let { arrayOf<KeyManager>(it) }
+        sslContext.init(keyManagers, arrayOf<TrustManager>(trustManager), null)
+        return LocalNetworkSslConfig(
             sslSocketFactory = sslContext.socketFactory,
             trustManager = trustManager,
             hostnameVerifier = LocalNetworkHostnameVerifier(defaultHostnameVerifier)

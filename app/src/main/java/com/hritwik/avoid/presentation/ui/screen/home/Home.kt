@@ -1,6 +1,5 @@
 package com.hritwik.avoid.presentation.ui.screen.home
 
-import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -37,14 +36,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
 import com.hritwik.avoid.R
 import com.hritwik.avoid.domain.model.library.MediaItem
 import com.hritwik.avoid.presentation.ui.components.common.FeaturedPagerSection
-import com.hritwik.avoid.presentation.ui.components.common.states.LoadingState
 import com.hritwik.avoid.presentation.ui.components.layout.SectionHeader
 import com.hritwik.avoid.presentation.ui.components.media.CollectionItemCard
 import com.hritwik.avoid.presentation.ui.components.media.MediaCardType
@@ -52,6 +50,8 @@ import com.hritwik.avoid.presentation.ui.components.media.MediaItemCard
 import com.hritwik.avoid.presentation.ui.components.visual.AnimatedAmbientBackground
 import com.hritwik.avoid.presentation.ui.navigation.Routes
 import com.hritwik.avoid.presentation.ui.screen.downloads.DownloadsScreen
+import com.hritwik.avoid.presentation.ui.screen.home.components.HomeFeaturedPlaceholder
+import com.hritwik.avoid.presentation.ui.screen.home.components.HomeSectionPlaceholder
 import com.hritwik.avoid.presentation.viewmodel.auth.AuthServerViewModel
 import com.hritwik.avoid.presentation.viewmodel.library.LibraryViewModel
 import com.hritwik.avoid.presentation.viewmodel.user.UserDataViewModel
@@ -86,8 +86,7 @@ fun HomeScreen(
     val currentUserId = authState.authSession?.userId?.id
     val activeServerUrl = authState.authSession?.server?.url ?: authState.serverUrl ?: ""
     val shouldUseMergedHomeRequest = remember(activeServerUrl) {
-        activeServerUrl.startsWith("https://", ignoreCase = true) &&
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP
+        activeServerUrl.startsWith("https://", ignoreCase = true)
     }
     var hasRequestedInitialLibraryData by rememberSaveable(currentUserId, activeServerUrl) {
         mutableStateOf(false)
@@ -192,14 +191,6 @@ fun HomeScreen(
                     navController.navigate(Routes.mediaDetail(mediaItem.id))
                 }
             )
-        } else if (libraryState.isLoading &&
-            libraryState.libraries.isEmpty() &&
-            libraryState.latestItems.isEmpty() &&
-            libraryState.resumeItems.isEmpty()
-            ) {
-            AnimatedAmbientBackground {
-                LoadingState()
-            }
         } else {
             AnimatedAmbientBackground {
                 LazyColumn(
@@ -209,13 +200,21 @@ fun HomeScreen(
                     when (showFeaturedHeader) {
                         true -> {
                             item {
-                                FeaturedPagerSection(
-                                    mediaItems = libraryState.latestMovies.take(5),
-                                    serverUrl = authState.authSession?.server?.url ?: "",
-                                    onPlayClick = onPlayClick,
-                                    onMediaClick = onMediaItemClick,
-                                    onSearchClick = onSearchClick,
-                                )
+                                when {
+                                    libraryState.latestMovies.isNotEmpty() -> {
+                                        FeaturedPagerSection(
+                                            mediaItems = libraryState.latestMovies.take(5),
+                                            serverUrl = authState.authSession?.server?.url ?: "",
+                                            onPlayClick = onPlayClick,
+                                            onMediaClick = onMediaItemClick,
+                                            onSearchClick = onSearchClick,
+                                        )
+                                    }
+
+                                    libraryState.isLoading -> {
+                                        HomeFeaturedPlaceholder()
+                                    }
+                                }
                             }
                         }
                         false -> item {
@@ -277,6 +276,15 @@ fun HomeScreen(
                                 }
                             }
                         }
+                    } else if (libraryState.isLoading) {
+                        item {
+                            HomeSectionPlaceholder(
+                                titleWidth = calculateRoundedValue(140).sdp,
+                                cardType = MediaCardType.THUMBNAIL,
+                                showTitle = true,
+                                itemCount = 5
+                            )
+                        }
                     }
 
                     if (libraryState.nextUpItems.isNotEmpty()) {
@@ -323,6 +331,15 @@ fun HomeScreen(
                                 }
                             }
                         }
+                    } else if (libraryState.isLoading) {
+                        item {
+                            HomeSectionPlaceholder(
+                                titleWidth = calculateRoundedValue(120).sdp,
+                                cardType = MediaCardType.THUMBNAIL,
+                                showTitle = true,
+                                itemCount = 5
+                            )
+                        }
                     }
 
                     if (libraryState.latestMovies.isNotEmpty()) {
@@ -345,6 +362,15 @@ fun HomeScreen(
                                     }
                                 }
                             }
+                        }
+                    } else if (libraryState.isLoading) {
+                        item {
+                            HomeSectionPlaceholder(
+                                titleWidth = calculateRoundedValue(90).sdp,
+                                cardType = MediaCardType.POSTER,
+                                showTitle = true,
+                                itemCount = 6
+                            )
                         }
                     }
 
@@ -369,6 +395,15 @@ fun HomeScreen(
                                 }
                             }
                         }
+                    } else if (libraryState.isLoading) {
+                        item {
+                            HomeSectionPlaceholder(
+                                titleWidth = calculateRoundedValue(90).sdp,
+                                cardType = MediaCardType.POSTER,
+                                showTitle = true,
+                                itemCount = 6
+                            )
+                        }
                     }
 
                     if (libraryState.latestEpisodes.isNotEmpty()) {
@@ -392,6 +427,15 @@ fun HomeScreen(
                                     }
                                 }
                             }
+                        }
+                    } else if (libraryState.isLoading) {
+                        item {
+                            HomeSectionPlaceholder(
+                                titleWidth = calculateRoundedValue(110).sdp,
+                                cardType = MediaCardType.THUMBNAIL,
+                                showTitle = true,
+                                itemCount = 6
+                            )
                         }
                     }
 
@@ -422,6 +466,16 @@ fun HomeScreen(
                                 }
                             }
                         }
+                    } else if (libraryState.isLoading) {
+                        item {
+                            HomeSectionPlaceholder(
+                                titleWidth = calculateRoundedValue(110).sdp,
+                                cardType = MediaCardType.POSTER,
+                                showTitle = true,
+                                itemCount = 6,
+                                showAction = true
+                            )
+                        }
                     }
 
                     if (favorites.isNotEmpty())     {
@@ -450,6 +504,15 @@ fun HomeScreen(
                                     }
                                 }
                             }
+                        }
+                    } else if (libraryState.isLoading) {
+                        item {
+                            HomeSectionPlaceholder(
+                                titleWidth = calculateRoundedValue(100).sdp,
+                                cardType = MediaCardType.POSTER,
+                                showTitle = true,
+                                itemCount = 6
+                            )
                         }
                     }
 

@@ -16,8 +16,8 @@ android {
         applicationId = "com.hritwik.avoid"
         minSdk = 26
         targetSdk = 36
-        versionCode = 17
-        versionName = "0.2.5m"
+        versionCode = 18
+        versionName = "0.2.6m"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -168,11 +168,16 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.core)
 
-    
+
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.security.crypto)
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.mlkit.barcode.scanning)
 
-    
+
     implementation(libs.accompanist.systemuicontroller)
     implementation(libs.accompanist.permissions)
 

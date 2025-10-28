@@ -20,16 +20,20 @@ import com.hritwik.avoid.domain.model.playback.DisplayMode
 import com.hritwik.avoid.domain.model.playback.PlayerType
 import com.hritwik.avoid.domain.model.playback.PreferredAudioCodec
 import com.hritwik.avoid.domain.model.playback.PreferredVideoCodec
+import com.hritwik.avoid.utils.constants.MpvConstants
 import com.hritwik.avoid.utils.constants.PreferenceConstants
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.io.File
 import java.time.LocalDate
 import java.time.YearMonth
 import javax.inject.Inject
@@ -47,6 +51,20 @@ class PreferencesManager @Inject constructor(
 ) {
     private val dataStore = context.dataStore
     private val authDataStore = context.authDataStore
+    private val masterKey: MasterKey by lazy {
+        MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+    }
+
+    private val mpvConfigDirectory: File
+        get() = File(context.filesDir, MpvConstants.CONFIG_DIRECTORY)
+
+    private val mpvConfigFile: File
+        get() = File(mpvConfigDirectory, MpvConstants.CONFIG_FILE_NAME)
+
+    private val mtlsCertificateFile: File
+        get() = File(context.filesDir, "mtls_certificate.bin")
 
     init {
         runBlocking { migrateAuthDataIfNeeded() }
@@ -59,6 +77,9 @@ class PreferencesManager @Inject constructor(
         private val SERVER_VERSION = stringPreferencesKey(PreferenceConstants.KEY_SERVER_VERSION)
         private val SERVER_CONNECTED = stringPreferencesKey(PreferenceConstants.KEY_SERVER_CONNECTED)
         private val SERVER_CONNECTIONS = stringPreferencesKey(PreferenceConstants.KEY_SERVER_CONNECTIONS)
+        private val MTLS_ENABLED = booleanPreferencesKey(PreferenceConstants.KEY_MTLS_ENABLED)
+        private val MTLS_CERTIFICATE_NAME = stringPreferencesKey(PreferenceConstants.KEY_MTLS_CERTIFICATE_NAME)
+        private val MTLS_CERTIFICATE_PASSWORD = stringPreferencesKey(PreferenceConstants.KEY_MTLS_CERTIFICATE_PASSWORD)
 
         
         private val USERNAME = stringPreferencesKey(PreferenceConstants.KEY_USERNAME)
@@ -422,6 +443,84 @@ class PreferencesManager @Inject constructor(
         }
     }
 
+    fun isMtlsEnabled(): Flow<Boolean> = dataStore.data.map { preferences ->
+        preferences[MTLS_ENABLED] ?: PreferenceConstants.DEFAULT_MTLS_ENABLED
+    }
+
+    fun getMtlsCertificateName(): Flow<String?> = dataStore.data.map { preferences ->
+        preferences[MTLS_CERTIFICATE_NAME]
+    }
+
+    fun getMtlsCertificatePassword(): Flow<String?> = dataStore.data.map { preferences ->
+        preferences[MTLS_CERTIFICATE_PASSWORD]
+    }
+
+    suspend fun setMtlsEnabled(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[MTLS_ENABLED] = enabled
+        }
+    }
+
+    suspend fun saveMtlsCertificate(bytes: ByteArray, displayName: String) {
+        withContext(Dispatchers.IO) {
+            if (mtlsCertificateFile.exists()) {
+                mtlsCertificateFile.delete()
+            }
+            val encryptedFile = EncryptedFile.Builder(
+                context,
+                mtlsCertificateFile,
+                masterKey,
+                EncryptedFile.FileEncryptionScheme.AES256_GCM_HKDF_4KB
+            ).build()
+            encryptedFile.openFileOutput().use { output ->
+                output.write(bytes)
+            }
+        }
+        dataStore.edit { preferences ->
+            preferences[MTLS_CERTIFICATE_NAME] = displayName
+            preferences.remove(MTLS_CERTIFICATE_PASSWORD)
+        }
+    }
+
+    suspend fun clearMtlsCertificate() {
+        withContext(Dispatchers.IO) {
+            if (mtlsCertificateFile.exists()) {
+                mtlsCertificateFile.delete()
+            }
+        }
+        dataStore.edit { preferences ->
+            preferences.remove(MTLS_CERTIFICATE_NAME)
+            preferences.remove(MTLS_CERTIFICATE_PASSWORD)
+        }
+    }
+
+    suspend fun getMtlsCertificateBytes(): ByteArray? = withContext(Dispatchers.IO) {
+        if (!mtlsCertificateFile.exists()) {
+            return@withContext null
+        }
+        runCatching {
+            val encryptedFile = EncryptedFile.Builder(
+                context,
+                mtlsCertificateFile,
+                masterKey,
+                EncryptedFile.FileEncryptionScheme.AES256_GCM_HKDF_4KB
+            ).build()
+            encryptedFile.openFileInput().use { input ->
+                input.readBytes()
+            }
+        }.getOrNull()
+    }
+
+    suspend fun setMtlsCertificatePassword(password: String) {
+        dataStore.edit { preferences ->
+            if (password.isBlank()) {
+                preferences.remove(MTLS_CERTIFICATE_PASSWORD)
+            } else {
+                preferences[MTLS_CERTIFICATE_PASSWORD] = password
+            }
+        }
+    }
+
     suspend fun clearServerConfiguration() {
         dataStore.edit { preferences ->
             preferences.remove(SERVER_URL)
@@ -639,7 +738,7 @@ class PreferencesManager @Inject constructor(
         PlayerType.fromValue(preferences[PLAYER_TYPE] ?: PreferenceConstants.DEFAULT_PLAYER_TYPE)
     }
 
-    
+
 
     fun getImageCacheSize(): Flow<Long> = dataStore.data.map { preferences ->
         preferences[IMAGE_CACHE_SIZE] ?: PreferenceConstants.DEFAULT_IMAGE_CACHE_SIZE.toLong()
@@ -799,6 +898,16 @@ class PreferencesManager @Inject constructor(
         }
     }
 
+    suspend fun getMpvConfig(): String = withContext(Dispatchers.IO) {
+        ensureMpvConfigExists()
+        mpvConfigFile.readText()
+    }
+
+    suspend fun saveMpvConfig(config: String) = withContext(Dispatchers.IO) {
+        ensureMpvConfigExists()
+        mpvConfigFile.writeText(config)
+    }
+
     suspend fun saveShowFeaturedHeader(enabled: Boolean) {
         dataStore.edit { preferences ->
             preferences[SHOW_FEATURED_HEADER] = enabled
@@ -845,6 +954,15 @@ class PreferencesManager @Inject constructor(
 
     fun getTotalRxBytes(): Flow<Long> = dataStore.data.map { preferences ->
         preferences[DATA_USAGE_RX] ?: 0L
+    }
+
+    private fun ensureMpvConfigExists() {
+        if (!mpvConfigDirectory.exists()) {
+            mpvConfigDirectory.mkdirs()
+        }
+        if (!mpvConfigFile.exists() || mpvConfigFile.length() == 0L) {
+            mpvConfigFile.writeText(MpvConstants.DEFAULT_CONFIG)
+        }
     }
 
     fun getTotalTxBytes(): Flow<Long> = dataStore.data.map { preferences ->

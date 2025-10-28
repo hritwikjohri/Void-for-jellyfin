@@ -30,10 +30,10 @@ import com.hritwik.avoid.presentation.ui.state.LibraryGenresState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -64,6 +64,15 @@ class LibraryViewModel @Inject constructor(
 
     private val _genresState = MutableStateFlow<Map<String, LibraryGenresState>>(emptyMap())
     val genresState: StateFlow<Map<String, LibraryGenresState>> = _genresState.asStateFlow()
+
+    data class LibrarySortPreference(
+        val sortId: String,
+        val sortDirection: LibrarySortDirection
+    )
+
+    private val _librarySortPreferences = MutableStateFlow<Map<String, LibrarySortPreference>>(emptyMap())
+    val librarySortPreferences: StateFlow<Map<String, LibrarySortPreference>> =
+        _librarySortPreferences.asStateFlow()
 
     private val pageSize = 100
     private val collectionPreviewLimit = 3
@@ -107,6 +116,7 @@ class LibraryViewModel @Inject constructor(
         _libraryState.value = LibraryState()
         _itemsState.value = LibraryItemsState()
         _genresState.value = emptyMap()
+        clearAllLibrarySortPreferences()
         pagerCache.clear()
         _pagerGeneration.update { it + 1 }
     }
@@ -114,6 +124,33 @@ class LibraryViewModel @Inject constructor(
     fun invalidateLibraryPagerCache() {
         pagerCache.clear()
         _pagerGeneration.update { it + 1 }
+    }
+
+    fun updateLibrarySortPreference(
+        libraryId: String,
+        sortId: String,
+        sortDirection: LibrarySortDirection
+    ) {
+        _librarySortPreferences.update { current ->
+            val existing = current[libraryId]
+            if (existing?.sortId == sortId && existing.sortDirection == sortDirection) {
+                current
+            } else {
+                current + (libraryId to LibrarySortPreference(sortId, sortDirection))
+            }
+        }
+    }
+
+    fun getLibrarySortPreference(libraryId: String): LibrarySortPreference? {
+        return _librarySortPreferences.value[libraryId]
+    }
+
+    fun clearLibrarySortPreference(libraryId: String) {
+        _librarySortPreferences.update { current -> current - libraryId }
+    }
+
+    private fun clearAllLibrarySortPreferences() {
+        _librarySortPreferences.value = emptyMap()
     }
 
     fun loadLibraryGenres(

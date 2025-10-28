@@ -1,14 +1,25 @@
 package com.hritwik.avoid.data.download
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Binder
+import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.media3.common.util.UnstableApi
+import com.hritwik.avoid.MainActivity
+import com.hritwik.avoid.data.download.toDownloadInfo
 import com.hritwik.avoid.domain.model.download.DownloadCodec
 import com.hritwik.avoid.domain.model.download.DownloadQuality
 import com.hritwik.avoid.domain.model.download.DownloadRequest
@@ -23,9 +34,11 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,15 +59,21 @@ import java.io.IOException
 import com.hritwik.avoid.utils.helpers.getDeviceName
 import com.hritwik.avoid.utils.helpers.normalizeUuid
 import kotlin.collections.ArrayDeque
+import kotlin.math.max
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import com.hritwik.avoid.R
 import com.hritwik.avoid.data.network.LocalNetworkSslHelper
+import com.hritwik.avoid.data.network.MtlsCertificateProvider
 import com.hritwik.avoid.data.remote.JellyfinApiService
 import com.hritwik.avoid.data.remote.dto.library.BaseItemDto
 
 private const val TAG = "DownloadService"
+private const val SERVICE_NOTIFICATION_ID = 0x444f574e
+private const val MAX_CONCURRENT_DOWNLOADS = 2
+private const val DOWNLOAD_THROTTLE_CHUNK_BYTES = 512 * 1024L
+private const val DOWNLOAD_THROTTLE_DELAY_MS = 50L
 
 @EntryPoint
 @InstallIn(SingletonComponent::class)
@@ -62,6 +81,7 @@ interface DownloadServiceEntryPoint {
     fun downloadDao(): DownloadDao
     fun mediaItemDao(): MediaItemDao
     fun preferencesManager(): PreferencesManager
+    fun mtlsCertificateProvider(): MtlsCertificateProvider
 }
 
 @UnstableApi
@@ -78,8 +98,17 @@ class DownloadService : LifecycleService() {
 
     private val binder = DownloadBinder()
 
+    private val entryPoint by lazy {
+        EntryPointAccessors.fromApplication(
+            applicationContext,
+            DownloadServiceEntryPoint::class.java
+        )
+    }
+
     private val client by lazy {
-        val sslConfig = LocalNetworkSslHelper.sslConfig
+        val sslConfig = LocalNetworkSslHelper.createSslConfig(
+            entryPoint.mtlsCertificateProvider().keyManager()
+        )
         OkHttpClient.Builder()
             .sslSocketFactory(sslConfig.sslSocketFactory, sslConfig.trustManager)
             .hostnameVerifier(sslConfig.hostnameVerifier)
@@ -91,19 +120,17 @@ class DownloadService : LifecycleService() {
     }
     private val json = Json { ignoreUnknownKeys = true }
     private val deviceId by lazy { getDeviceName(applicationContext) }
-    private val maxConcurrent = 2
+    private val maxConcurrent = MAX_CONCURRENT_DOWNLOADS
     private val queue = ArrayDeque<DownloadTask>()
     private val active = mutableMapOf<String, kotlinx.coroutines.Job>()
-    private val entryPoint by lazy {
-        EntryPointAccessors.fromApplication(
-            applicationContext,
-            DownloadServiceEntryPoint::class.java
-        )
-    }
+    private val lock = Any()
     private val downloadDao: DownloadDao by lazy { entryPoint.downloadDao() }
     private val mediaItemDao: MediaItemDao by lazy { entryPoint.mediaItemDao() }
     private val preferencesManager: PreferencesManager by lazy { entryPoint.preferencesManager() }
     private val notificationManager by lazy { getSystemService(NotificationManager::class.java) }
+    private var isForegroundService = false
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val serviceNotificationRunnable = Runnable { updateServiceNotificationOnMain() }
 
     data class DownloadTask(val id: String, val info: DownloadInfo)
 
@@ -119,7 +146,9 @@ class DownloadService : LifecycleService() {
         val addedAt: Long,
         val quality: DownloadQuality,
         val request: DownloadRequest,
-        val mediaSourceId: String? = null
+        val mediaSourceId: String? = null,
+        val downloadedBytes: Long = 0L,
+        val totalBytes: Long? = null
     )
 
     enum class DownloadStatus { QUEUED, DOWNLOADING, PAUSED, COMPLETED, FAILED }
@@ -147,11 +176,30 @@ class DownloadService : LifecycleService() {
         )
 
         private val pendingDownloads = mutableListOf<PendingDownload>()
+        private val pendingServiceActions = mutableListOf<(DownloadService) -> Unit>()
+
+        private fun enqueueServiceAction(
+            context: Context,
+            startIfNeeded: Boolean,
+            action: (DownloadService) -> Unit
+        ) {
+            val instance = getInstance()
+            if (instance != null) {
+                action(instance)
+                return
+            }
+            if (!startIfNeeded) return
+
+            synchronized(pendingServiceActions) {
+                pendingServiceActions.add(action)
+            }
+            start(context)
+        }
 
         fun start(context: Context) {
             val appContext = context.applicationContext
             val intent = Intent(appContext, DownloadService::class.java)
-            appContext.startService(intent)
+            ContextCompat.startForegroundService(appContext, intent)
         }
 
         fun getInstance(): DownloadService? = instance
@@ -183,7 +231,11 @@ class DownloadService : LifecycleService() {
         }
 
         fun resumeDownload(context: Context, id: String) {
-            getInstance()?.resume(id)
+            enqueueServiceAction(context, startIfNeeded = true) { it.resume(id) }
+        }
+
+        fun resumeAllDownloads(context: Context) {
+            enqueueServiceAction(context, startIfNeeded = true) { it.resumeAllDownloads() }
         }
 
         fun cancelDownload(context: Context, id: String) {
@@ -196,13 +248,57 @@ class DownloadService : LifecycleService() {
                     appContext,
                     DownloadServiceEntryPoint::class.java
                 ).downloadDao()
-                runBlocking(Dispatchers.IO) {
+                val removalKeys = runBlocking(Dispatchers.IO) {
                     val entity = dao.getDownloadByMediaSourceId(id)
+                        ?: dao.getDownloadByMediaSourceId(normalizeUuid(id))
+                        ?: dao.getDownloadByMediaId(id)
                         ?: dao.getDownloadByMediaId(normalizeUuid(id))
-                    deleteFolderImmediate(File(appContext.filesDir, "downloads/$id"))
+                    val candidates = buildCandidateIds(id, entity)
+                    candidates.forEach { candidate ->
+                        deleteFolderImmediate(File(appContext.filesDir, "downloads/$candidate"))
+                    }
                     if (entity != null) {
                         entity.filePath?.let { deleteFolderImmediate(File(it).parentFile) }
                         dao.deleteDownload(entity)
+                    }
+                    candidates
+                }
+                clearDownloadState(removalKeys)
+                val notificationManager = context.getSystemService(NotificationManager::class.java)
+                removalKeys.forEach { key -> notificationManager?.cancel(key.hashCode()) }
+            }
+        }
+
+        private fun buildCandidateIds(
+            originalId: String,
+            entity: DownloadEntity?
+        ): Set<String> {
+            return buildSet {
+                addAll(candidateForms(originalId))
+                entity?.mediaSourceId?.let { addAll(candidateForms(it)) }
+                entity?.mediaId?.let { addAll(candidateForms(it)) }
+            }.filterNot { it.isBlank() }.toSet()
+        }
+
+        private fun candidateForms(id: String): Set<String> {
+            val normalized = normalizeUuid(id)
+            val compact = normalized.replace("-", "")
+            return setOf(id, normalized, compact)
+        }
+
+        private fun clearDownloadState(ids: Set<String>) {
+            if (ids.isEmpty()) return
+            _downloads.update { map -> map - ids }
+            _downloadProgress.update { map -> map - ids }
+            _downloadStatuses.update { map -> map - ids }
+            synchronized(pendingDownloads) {
+                if (pendingDownloads.isNotEmpty()) {
+                    pendingDownloads.removeAll { pending ->
+                        val pendingIds = buildSet {
+                            addAll(candidateForms(pending.mediaItem.id))
+                            pending.mediaSourceId?.let { addAll(candidateForms(it)) }
+                        }
+                        pendingIds.any { it in ids }
                     }
                 }
             }
@@ -231,11 +327,18 @@ class DownloadService : LifecycleService() {
         super.onCreate()
         instance = this
         createNotificationChannel()
-        synchronized(pendingDownloads) {
-            pendingDownloads.forEach {
-                queueDownload(it.mediaItem, it.serverUrl, it.accessToken, it.request, it.priority, it.mediaSourceId)
+        scope.launch {
+            restoreDownloadsFromDatabase()
+            synchronized(pendingDownloads) {
+                pendingDownloads.forEach {
+                    queueDownload(it.mediaItem, it.serverUrl, it.accessToken, it.request, it.priority, it.mediaSourceId)
+                }
+                pendingDownloads.clear()
             }
-            pendingDownloads.clear()
+            val actions = synchronized(pendingServiceActions) {
+                pendingServiceActions.toList().also { pendingServiceActions.clear() }
+            }
+            actions.forEach { it(this@DownloadService) }
         }
     }
 
@@ -243,6 +346,12 @@ class DownloadService : LifecycleService() {
         super.onDestroy()
         instance = null
         scope.cancel()
+        mainHandler.removeCallbacks(serviceNotificationRunnable)
+        if (isForegroundService) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            notificationManager.cancel(SERVICE_NOTIFICATION_ID)
+            isForegroundService = false
+        }
     }
 
     private fun createNotificationChannel() {
@@ -256,9 +365,177 @@ class DownloadService : LifecycleService() {
         notificationManager.createNotificationChannel(channel)
     }
 
+    private suspend fun restoreDownloadsFromDatabase() {
+        val stored = downloadDao.getAllDownloads().first()
+        if (stored.isEmpty()) {
+            updateServiceNotification()
+            return
+        }
+        stored.forEach { entity ->
+            val id = entity.mediaSourceId ?: entity.mediaId
+            var info = entity.toDownloadInfo(json)
+            if (info.status == DownloadStatus.COMPLETED) {
+                registerDownloadInfo(id, info, notify = false)
+                return@forEach
+            }
+            val tmpFile = info.file.parentFile?.resolve("${info.file.nameWithoutExtension}.tmp")
+            val existingBytes = when {
+                tmpFile?.exists() == true -> tmpFile.length()
+                info.file.exists() -> {
+                    if (tmpFile != null) {
+                        tmpFile.parentFile?.mkdirs()
+                        info.file.renameTo(tmpFile)
+                        tmpFile.length()
+                    } else {
+                        info.file.length()
+                    }
+                }
+                else -> 0L
+            }
+            val resumedBytes = max(info.downloadedBytes, existingBytes)
+            if (resumedBytes > info.downloadedBytes) {
+                info = info.copy(downloadedBytes = resumedBytes)
+            }
+            val statusForResume = when (info.status) {
+                DownloadStatus.DOWNLOADING -> DownloadStatus.QUEUED
+                else -> info.status
+            }
+            if (statusForResume != info.status) {
+                info = info.copy(status = statusForResume)
+            }
+            var updatedEntity = entity
+            if (resumedBytes > entity.downloadedBytes) {
+                updatedEntity = updatedEntity.copy(downloadedBytes = resumedBytes)
+            }
+            if (statusForResume.name != entity.status) {
+                updatedEntity = updatedEntity.copy(status = statusForResume.name)
+            }
+            if (info.progress != entity.progress) {
+                updatedEntity = updatedEntity.copy(progress = info.progress)
+            }
+            if (updatedEntity != entity) {
+                downloadDao.updateDownload(updatedEntity)
+            }
+            registerDownloadInfo(id, info, notify = statusForResume != DownloadStatus.PAUSED)
+            if (statusForResume == DownloadStatus.QUEUED) {
+                synchronized(lock) { queue.addLast(DownloadTask(id, info)) }
+            }
+        }
+        updateServiceNotification()
+        schedule()
+    }
+
+    private fun registerDownloadInfo(id: String, info: DownloadInfo, notify: Boolean = true) {
+        _downloads.update { it + (id to info) }
+        _downloadProgress.update { it + (id to info.progress) }
+        _downloadStatuses.update { it + (id to info.status) }
+        if (notify) {
+            showNotification(id, info)
+        }
+    }
+
     private fun showNotification(id: String, info: DownloadInfo) {
         val notification = DownloadNotificationService.buildNotification(this, info)
         notificationManager.notify(id.hashCode(), notification)
+    }
+
+    private fun updateServiceNotification() {
+        mainHandler.removeCallbacks(serviceNotificationRunnable)
+        mainHandler.post(serviceNotificationRunnable)
+    }
+
+    private fun updateServiceNotificationOnMain() {
+        val statuses = _downloadStatuses.value.values
+        val hasActive = statuses.any {
+            it == DownloadStatus.DOWNLOADING ||
+                it == DownloadStatus.QUEUED ||
+                it == DownloadStatus.PAUSED
+        }
+        if (!hasActive) {
+            if (isForegroundService) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                notificationManager.cancel(SERVICE_NOTIFICATION_ID)
+                isForegroundService = false
+            }
+            val shouldStop = synchronized(lock) { active.isEmpty() && queue.isEmpty() }
+            if (shouldStop) {
+                stopSelf()
+            }
+            return
+        }
+
+        val notification = buildServiceNotification(statuses)
+        if (!isForegroundService) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    SERVICE_NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                startForeground(SERVICE_NOTIFICATION_ID, notification)
+            }
+            isForegroundService = true
+        } else {
+            notificationManager.notify(SERVICE_NOTIFICATION_ID, notification)
+        }
+    }
+
+    private fun buildServiceNotification(statuses: Collection<DownloadStatus>): Notification {
+        val downloadingCount = statuses.count { it == DownloadStatus.DOWNLOADING }
+        val queuedCount = statuses.count { it == DownloadStatus.QUEUED }
+        val pausedCount = statuses.count { it == DownloadStatus.PAUSED }
+
+        val parts = mutableListOf<String>()
+        if (downloadingCount > 0) {
+            parts += resources.getQuantityString(
+                R.plurals.download_summary_downloading,
+                downloadingCount,
+                downloadingCount
+            )
+        }
+        if (queuedCount > 0) {
+            parts += resources.getQuantityString(
+                R.plurals.download_summary_queued,
+                queuedCount,
+                queuedCount
+            )
+        }
+        if (pausedCount > 0) {
+            parts += resources.getQuantityString(
+                R.plurals.download_summary_paused,
+                pausedCount,
+                pausedCount
+            )
+        }
+
+        val contentText = if (parts.isEmpty()) {
+            getString(R.string.download_channel_description)
+        } else {
+            parts.joinToString(separator = " • ")
+        }
+
+        return NotificationCompat.Builder(this, DownloadNotificationService.CHANNEL_ID)
+            .setContentTitle(getString(R.string.download_channel_name))
+            .setContentText(contentText)
+            .setSmallIcon(R.drawable.void_icon)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(createDownloadsPendingIntent())
+            .build()
+    }
+
+    private fun createDownloadsPendingIntent(): PendingIntent {
+        val downloadsIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        return PendingIntent.getActivity(
+            this,
+            SERVICE_NOTIFICATION_ID,
+            downloadsIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 
     private fun queueDownload(
@@ -360,7 +637,9 @@ class DownloadService : LifecycleService() {
             System.currentTimeMillis(),
             request.quality,
             request,
-            sourceId
+            sourceId,
+            downloadedBytes = 0L,
+            totalBytes = null
         )
         Log.d(TAG, "Queue download $sourceId -> ${info.requestUri}")
         _downloads.update { it + (sourceId to info) }
@@ -379,6 +658,7 @@ class DownloadService : LifecycleService() {
                 accessToken = accessToken,
                 progress = 0f,
                 status = DownloadStatus.QUEUED.name,
+                downloadedBytes = 0L,
                 filePath = file.absolutePath,
                 mediaSourceId = sourceId,
                 defaultVideoStream = source?.defaultVideoStream,
@@ -446,15 +726,23 @@ class DownloadService : LifecycleService() {
             downloadImage(serverUrl, itemId, mediaItem.logoImageTag, "Logo", logoFile)
         }
 
-        queue.addLast(DownloadTask(sourceId, info))
+        synchronized(lock) {
+            queue.addLast(DownloadTask(sourceId, info))
+        }
         schedule()
+        updateServiceNotification()
     }
 
     private fun schedule() {
-        while (active.size < maxConcurrent && queue.isNotEmpty()) {
-            val task = queue.removeFirst()
-            launchDownload(task)
+        val tasksToStart = mutableListOf<DownloadTask>()
+        synchronized(lock) {
+            var availableSlots = (maxConcurrent - active.size).coerceAtLeast(0)
+            while (availableSlots > 0 && queue.isNotEmpty()) {
+                tasksToStart += queue.removeFirst()
+                availableSlots--
+            }
         }
+        tasksToStart.forEach { launchDownload(it) }
     }
 
     private suspend fun fetchItemDurationTicks(
@@ -504,45 +792,148 @@ class DownloadService : LifecycleService() {
         val id = task.id
         val info = task.info
         val job = scope.launch {
+            var downloadedBytes = info.downloadedBytes
+            var totalBytes: Long? = info.totalBytes
+            val tmp = info.file.parentFile?.resolve("${info.file.nameWithoutExtension}.tmp")
             try {
                 Log.d(TAG, "Start download $id")
-                updateProgress(id, 0f, DownloadStatus.DOWNLOADING)
-                val tmp = File(info.file.parentFile, "${info.file.nameWithoutExtension}.tmp")
-                client.newCall(Request.Builder().url(info.requestUri).build()).execute().use { response ->
-                    val body = response.body ?: throw java.io.IOException("empty body")
-                    FileOutputStream(tmp).use { out ->
+                if (tmp != null && !tmp.exists() && info.file.exists()) {
+                    tmp.parentFile?.mkdirs()
+                    info.file.renameTo(tmp)
+                }
+                if (tmp != null && tmp.exists() && downloadedBytes < tmp.length()) {
+                    downloadedBytes = tmp.length()
+                }
+                val initialProgress = if (totalBytes != null && totalBytes!! > 0 && downloadedBytes > 0) {
+                    (downloadedBytes * 100f / totalBytes!!).coerceAtMost(99.9f)
+                } else {
+                    info.progress
+                }
+                updateProgress(
+                    id,
+                    initialProgress,
+                    DownloadStatus.DOWNLOADING,
+                    downloadedBytes = downloadedBytes.takeIf { it > 0L },
+                    totalBytes = totalBytes
+                )
+                val requestBuilder = Request.Builder().url(info.requestUri)
+                if (downloadedBytes > 0L) {
+                    requestBuilder.header("Range", "bytes=$downloadedBytes-")
+                }
+                client.newCall(requestBuilder.build()).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        throw IOException("HTTP ${response.code} for $id")
+                    }
+                    val body = response.body ?: throw IOException("empty body")
+                    if (downloadedBytes > 0L && response.code != 206) {
+                        Log.w(TAG, "Server ignored range for $id, restarting download")
+                        downloadedBytes = 0L
+                        tmp?.delete()
+                    }
+                    val contentRange = response.header("Content-Range")
+                    totalBytes = when {
+                        contentRange != null -> parseContentRange(contentRange)?.takeIf { it > 0L }
+                        body.contentLength() > 0L -> body.contentLength() + downloadedBytes
+                        else -> totalBytes
+                    }
+                    val workingFile = tmp ?: File(info.file.parentFile, "${info.file.nameWithoutExtension}.tmp")
+                    workingFile.parentFile?.mkdirs()
+                    FileOutputStream(workingFile, downloadedBytes > 0L).use { out ->
                         val input = body.byteStream()
                         val buffer = ByteArray(64 * 1024)
-                        var downloaded = 0L
-                        val total = body.contentLength()
-                        var lastPercent = 0f
+                        var lastPercent = initialProgress
+                        var lastBytesUpdate = SystemClock.elapsedRealtime()
+                        var throttleBytes = downloadedBytes
                         while (true) {
                             val read = input.read(buffer)
                             if (read == -1) break
                             out.write(buffer, 0, read)
-                            downloaded += read
-                            if (total > 0) {
-                                val percent = downloaded * 100f / total
+                            downloadedBytes += read
+                            if (downloadedBytes - throttleBytes >= DOWNLOAD_THROTTLE_CHUNK_BYTES) {
+                                throttleBytes = downloadedBytes
+                                delay(DOWNLOAD_THROTTLE_DELAY_MS)
+                            }
+                            val totalBytesValue = totalBytes
+                            if (totalBytesValue != null && totalBytesValue > 0) {
+                                val percent = (downloadedBytes * 100f / totalBytesValue).coerceAtMost(100f)
                                 if (percent - lastPercent >= 1f) {
                                     lastPercent = percent
-                                    updateProgress(id, percent, DownloadStatus.DOWNLOADING)
+                                    lastBytesUpdate = SystemClock.elapsedRealtime()
+                                    updateProgress(
+                                        id,
+                                        percent,
+                                        DownloadStatus.DOWNLOADING,
+                                        downloadedBytes = downloadedBytes,
+                                        totalBytes = totalBytes
+                                    )
+                                } else {
+                                    val now = SystemClock.elapsedRealtime()
+                                    if (now - lastBytesUpdate >= 1000L) {
+                                        lastBytesUpdate = now
+                                        updateProgress(
+                                            id,
+                                            lastPercent,
+                                            DownloadStatus.DOWNLOADING,
+                                            downloadedBytes = downloadedBytes,
+                                            totalBytes = totalBytes
+                                        )
+                                    }
+                                }
+                            } else {
+                                val now = SystemClock.elapsedRealtime()
+                                if (now - lastBytesUpdate >= 500L) {
+                                    lastBytesUpdate = now
+                                    updateProgress(
+                                        id,
+                                        lastPercent,
+                                        DownloadStatus.DOWNLOADING,
+                                        downloadedBytes = downloadedBytes
+                                    )
                                 }
                             }
                         }
                     }
+                    workingFile.renameTo(info.file)
                 }
-                tmp.renameTo(info.file)
                 Log.d(TAG, "Download completed $id")
-                updateProgress(id, 100f, DownloadStatus.COMPLETED, info.file.absolutePath)
+                updateProgress(
+                    id,
+                    100f,
+                    DownloadStatus.COMPLETED,
+                    path = info.file.absolutePath,
+                    downloadedBytes = downloadedBytes,
+                    totalBytes = totalBytes
+                )
+            } catch (e: CancellationException) {
+                Log.d(TAG, "Download paused $id")
+                val progress = _downloadProgress.value[id] ?: info.progress
+                updateProgress(
+                    id,
+                    progress,
+                    DownloadStatus.PAUSED,
+                    downloadedBytes = downloadedBytes,
+                    totalBytes = totalBytes
+                )
+                return@launch
             } catch (e: Exception) {
                 Log.e(TAG, "Download failed $id", e)
-                updateProgress(id, _downloadProgress.value[id] ?: 0f, DownloadStatus.FAILED)
+                updateProgress(
+                    id,
+                    _downloadProgress.value[id] ?: info.progress,
+                    DownloadStatus.FAILED,
+                    downloadedBytes = downloadedBytes,
+                    totalBytes = totalBytes
+                )
             } finally {
-                active.remove(id)
+                synchronized(lock) {
+                    active.remove(id)
+                }
                 schedule()
             }
         }
-        active[id] = job
+        synchronized(lock) {
+            active[id] = job
+        }
     }
 
     private fun resolveId(id: String): String? {
@@ -555,26 +946,41 @@ class DownloadService : LifecycleService() {
 
     private fun pause(id: String) {
         val key = resolveId(id) ?: return
-        active[key]?.cancel()
-        active.remove(key)
+        val job = synchronized(lock) {
+            active.remove(key)
+        }
+        job?.cancel()
         val progress = _downloadProgress.value[key] ?: 0f
         updateProgress(key, progress, DownloadStatus.PAUSED)
+        schedule()
     }
 
-    private fun resume(id: String) {
+    internal fun resume(id: String) {
         val key = resolveId(id) ?: return
         val info = _downloads.value[key] ?: return
         if (info.status == DownloadStatus.COMPLETED) return
         val progress = _downloadProgress.value[key] ?: 0f
         updateProgress(key, progress, DownloadStatus.QUEUED)
-        queue.addLast(DownloadTask(key, info))
+        synchronized(lock) {
+            queue.addLast(DownloadTask(key, info))
+        }
         schedule()
+    }
+
+    internal fun resumeAllDownloads() {
+        val paused = _downloadStatuses.value.filterValues { it == DownloadStatus.PAUSED }.keys
+        paused.forEach { resume(it) }
     }
 
     private fun cancel(id: String) {
         val key = resolveId(id) ?: return
-        active[key]?.cancel()
-        active.remove(key)
+        val job = synchronized(lock) {
+            active.remove(key)
+        }
+        job?.cancel()
+        synchronized(lock) {
+            queue.removeAll { it.id == key }
+        }
         deleteFolderImmediate(_downloads.value[key]?.file?.parentFile)
         deleteFolderImmediate(File(downloadDir, key))
         _downloads.update { it - key }
@@ -588,15 +994,30 @@ class DownloadService : LifecycleService() {
             }
         }
         notificationManager.cancel(key.hashCode())
+        updateServiceNotification()
     }
 
 
-    private fun updateProgress(id: String, percent: Float, status: DownloadStatus, path: String? = null) {
+    private fun updateProgress(
+        id: String,
+        percent: Float,
+        status: DownloadStatus,
+        path: String? = null,
+        downloadedBytes: Long? = null,
+        totalBytes: Long? = null
+    ) {
         _downloadProgress.update { it + (id to percent) }
         _downloadStatuses.update { it + (id to status) }
         _downloads.update { map ->
             val existing = map[id] ?: return@update map
-            map + (id to existing.copy(progress = percent, status = status))
+            map + (
+                id to existing.copy(
+                    progress = percent,
+                    status = status,
+                    downloadedBytes = downloadedBytes ?: existing.downloadedBytes,
+                    totalBytes = totalBytes ?: existing.totalBytes
+                )
+            )
         }
         scope.launch {
             val entity = downloadDao.getDownloadByMediaSourceId(id)
@@ -606,12 +1027,14 @@ class DownloadService : LifecycleService() {
                     entity.copy(
                         progress = percent,
                         status = status.name,
-                        filePath = path ?: entity.filePath
+                        filePath = path ?: entity.filePath,
+                        downloadedBytes = downloadedBytes ?: entity.downloadedBytes
                     )
                 )
             }
         }
         _downloads.value[id]?.let { showNotification(id, it) }
+        updateServiceNotification()
     }
 
     private fun downloadImage(
@@ -641,6 +1064,12 @@ class DownloadService : LifecycleService() {
         }.onFailure { e -> Log.e(TAG, "Image download failed $itemId", e) }
     }
 
+    private fun parseContentRange(header: String): Long? {
+        val slashIndex = header.lastIndexOf('/')
+        if (slashIndex == -1 || slashIndex == header.length - 1) return null
+        return header.substring(slashIndex + 1).toLongOrNull()
+    }
+
     private fun getDownloadedFilePathInternal(id: String): String? {
         val key = resolveId(id) ?: id
         _downloads.value[key]?.file?.let { if (it.exists()) return it.absolutePath }
@@ -654,8 +1083,18 @@ class DownloadService : LifecycleService() {
         downloadDir.walkTopDown().filter { it.extension == "tmp" }.forEach { it.delete() }
     }
 
-internal fun pauseAllDownloads() {
-        active.keys.toList().forEach { pause(it) }
+    internal fun pauseAllDownloads() {
+        val queuedToPause = synchronized(lock) {
+            val queued = queue.toList()
+            queue.clear()
+            queued
+        }
+        queuedToPause.forEach { task ->
+            val progress = _downloadProgress.value[task.id] ?: task.info.progress
+            updateProgress(task.id, progress, DownloadStatus.PAUSED)
+        }
+        val running = synchronized(lock) { active.keys.toList() }
+        running.forEach { pause(it) }
     }
 }
 

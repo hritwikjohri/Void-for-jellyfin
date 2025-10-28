@@ -46,7 +46,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.hritwik.avoid.R
 import com.hritwik.avoid.domain.model.jellyseer.JellyseerAvailabilityStatus
 import com.hritwik.avoid.domain.model.jellyseer.JellyseerCastMember
 import com.hritwik.avoid.domain.model.jellyseer.JellyseerMediaDetail
@@ -55,6 +54,7 @@ import com.hritwik.avoid.domain.model.jellyseer.JellyseerSearchResult
 import com.hritwik.avoid.domain.model.jellyseer.JellyseerVideoQuality
 import com.hritwik.avoid.domain.model.library.MediaItem
 import com.hritwik.avoid.presentation.ui.components.common.NetworkImage
+import com.hritwik.avoid.presentation.ui.components.common.states.LoadingState
 import com.hritwik.avoid.presentation.ui.components.jellyseer.JellyseerAvailabilityBadge
 import com.hritwik.avoid.presentation.ui.components.jellyseer.JellyseerRequestStatusBadge
 import com.hritwik.avoid.presentation.ui.components.layout.SectionHeader
@@ -65,13 +65,12 @@ import com.hritwik.avoid.presentation.ui.components.visual.AnimatedAmbientBackgr
 import com.hritwik.avoid.presentation.ui.state.JellyseerDetailUiState
 import com.hritwik.avoid.presentation.ui.theme.PrimaryText
 import com.hritwik.avoid.presentation.viewmodel.search.JellyseerDetailViewModel
+import com.hritwik.avoid.utils.constants.AppConstants.TMDB_BACKDROP_BASE
+import com.hritwik.avoid.utils.constants.AppConstants.TMDB_POSTER_BASE
+import com.hritwik.avoid.utils.constants.AppConstants.TMDB_PROFILE_BASE
 import com.hritwik.avoid.utils.helpers.GestureHelper.swipeBack
 import com.hritwik.avoid.utils.helpers.calculateRoundedValue
 import ir.kaaveh.sdpcompose.sdp
-
-private const val TMDB_BACKDROP_BASE = "https://image.tmdb.org/t/p/w780"
-private const val TMDB_POSTER_BASE = "https://image.tmdb.org/t/p/w500"
-private const val TMDB_PROFILE_BASE = "https://image.tmdb.org/t/p/w185"
 
 @Composable
 fun JellyseerDetailScreen(
@@ -86,45 +85,45 @@ fun JellyseerDetailScreen(
         viewModel.loadDetails(mediaId, mediaType)
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.9f))
-    ) {
-        when {
-            state.isLoading && state.detail == null -> {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-            }
+    AnimatedAmbientBackground(imageUrl = state.detail?.backdropPath?.let { TMDB_BACKDROP_BASE + it }) {
+        Box(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            when {
+                state.isLoading && state.detail == null -> {
+                    LoadingState()
+                }
 
-            state.error != null -> {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(calculateRoundedValue(24).sdp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = state.error ?: "Unable to load details.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.error,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(calculateRoundedValue(16).sdp))
-                    Button(onClick = { viewModel.loadDetails(mediaId, mediaType) }) {
-                        Text("Retry")
+                state.error != null -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(calculateRoundedValue(24).sdp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = state.error ?: "Unable to load details.",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(calculateRoundedValue(16).sdp))
+                        Button(onClick = { viewModel.loadDetails(mediaId, mediaType) }) {
+                            Text("Retry")
+                        }
                     }
                 }
-            }
 
-            state.detail != null -> {
-                JellyseerDetailContent(
-                    state = state,
-                    onBackClick = onBackClick,
-                    onRequestClick = { viewModel.requestMedia(mediaId, mediaType) },
-                    onQualitySelected = viewModel::selectVideoQuality,
-                    onExactTitleSelected = viewModel::selectExactTitle
-                )
+                state.detail != null -> {
+                    JellyseerDetailContent(
+                        state = state,
+                        onBackClick = onBackClick,
+                        onRequestClick = { viewModel.requestMedia(mediaId, mediaType) },
+                        onQualitySelected = viewModel::selectVideoQuality,
+                        onExactTitleSelected = viewModel::selectExactTitle
+                    )
+                }
             }
         }
     }
@@ -139,59 +138,57 @@ private fun JellyseerDetailContent(
     onExactTitleSelected: (JellyseerSearchResult) -> Unit
 ) {
     val detail = state.detail ?: return
-    AnimatedAmbientBackground(drawableRes = R.drawable.void_logo) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .swipeBack(onBackClick)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .swipeBack(onBackClick)
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = calculateRoundedValue(56).sdp),
+            verticalArrangement = Arrangement.spacedBy(calculateRoundedValue(24).sdp)
         ) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = calculateRoundedValue(56).sdp),
-                verticalArrangement = Arrangement.spacedBy(calculateRoundedValue(24).sdp)
-            ) {
+            item {
+                JellyseerHeroSection(
+                    detail = detail,
+                    onBackClick = onBackClick
+                )
+            }
+
+            item {
+                JellyseerRequestSection(
+                    state = state,
+                    detail = detail,
+                    onRequestClick = onRequestClick,
+                    onQualitySelected = onQualitySelected,
+                    onExactTitleSelected = onExactTitleSelected
+                )
+            }
+
+            item {
+                JellyseerMetadataSection(detail = detail)
+            }
+
+            if (!detail.overview.isNullOrBlank() || !detail.tagline.isNullOrBlank()) {
                 item {
-                    JellyseerHeroSection(
-                        detail = detail,
-                        onBackClick = onBackClick
+                    OverviewSection(
+                        overview = detail.overview.orEmpty(),
+                        tagline = detail.tagline,
+                        title = "Overview",
+                        modifier = Modifier.padding(horizontal = calculateRoundedValue(16).sdp)
                     )
                 }
+            }
 
+            if (detail.genres.isNotEmpty()) {
                 item {
-                    JellyseerRequestSection(
-                        state = state,
-                        detail = detail,
-                        onRequestClick = onRequestClick,
-                        onQualitySelected = onQualitySelected,
-                        onExactTitleSelected = onExactTitleSelected
-                    )
+                    JellyseerGenreSection(genres = detail.genres)
                 }
+            }
 
+            if (detail.cast.isNotEmpty()) {
                 item {
-                    JellyseerMetadataSection(detail = detail)
-                }
-
-                if (!detail.overview.isNullOrBlank() || !detail.tagline.isNullOrBlank()) {
-                    item {
-                        OverviewSection(
-                            overview = detail.overview.orEmpty(),
-                            tagline = detail.tagline,
-                            title = "Overview",
-                            modifier = Modifier.padding(horizontal = calculateRoundedValue(16).sdp)
-                        )
-                    }
-                }
-
-                if (detail.genres.isNotEmpty()) {
-                    item {
-                        JellyseerGenreSection(genres = detail.genres)
-                    }
-                }
-
-                if (detail.cast.isNotEmpty()) {
-                    item {
-                        JellyseerCastSection(cast = detail.cast)
-                    }
+                    JellyseerCastSection(cast = detail.cast)
                 }
             }
         }
@@ -335,14 +332,10 @@ private fun JellyseerRequestSection(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = calculateRoundedValue(16).sdp),
-        shape = RoundedCornerShape(calculateRoundedValue(20).sdp),
-        tonalElevation = calculateRoundedValue(6).sdp,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
+        color = Color.Transparent
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(calculateRoundedValue(20).sdp),
+            modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(calculateRoundedValue(16).sdp)
         ) {
             Column(
@@ -616,14 +609,10 @@ private fun JellyseerMetadataSection(detail: JellyseerMediaDetail) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = calculateRoundedValue(16).sdp),
-        shape = RoundedCornerShape(calculateRoundedValue(20).sdp),
-        tonalElevation = calculateRoundedValue(4).sdp,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
+        color = Color.Transparent
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(calculateRoundedValue(20).sdp),
+            modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(calculateRoundedValue(12).sdp)
         ) {
             Text(

@@ -121,7 +121,7 @@ private fun AppInfoCard() {
 
     Column(
         modifier = Modifier.padding(vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
             text = "Features",
@@ -131,15 +131,99 @@ private fun AppInfoCard() {
             modifier = Modifier.padding(bottom = 4.dp)
         )
 
-        FeatureItem("Smart Connections Manager - Seamlessly switches between local and internet")
-        FeatureItem("Multi-version media support")
-        FeatureItem("Theme songs support")
-        FeatureItem("Special features")
-        FeatureItem("Libass support for better subtitles in anime")
-        FeatureItem("Dolby Vision software decoding")
-        FeatureItem("Segment support for intro/outro/recap")
+        FeatureSection(
+            title = "Effortless Setup & Secure Access",
+            items = listOf(
+                "Server onboarding with certificate import and mutual TLS",
+                "Quick Connect PIN-based login with auto polling & approval",
+                "First-run onboarding for permissions, offline setup, and instant access"
+            )
+        )
+
+        FeatureSection(
+            title = "Offline-First Entertainment",
+            items = listOf(
+                "Downloads hub: pause/resume all, multi-select delete, friendly empty state",
+                "Auto-switches Home to offline library when network drops",
+                "Background downloads with flexible quality presets and notifications"
+            )
+        )
+
+        FeatureSection(
+            title = "Smart Discovery & Library Browsing",
+            items = listOf(
+                "Home: Continue Watching, Next Up, Movies, Shows, Recently Added",
+                "Search spans Jellyfin + Jellyseer with real-time suggestions & filters",
+                "Rich cards and dynamic placeholders while content loads"
+            )
+        )
+
+        FeatureSection(
+            title = "Immersive Playback Controls",
+            items = listOf(
+                "Cinematic overlay: speed, quality, tracks, decoder/display, PiP, skip/segments",
+                "Auto-selects MPV or ExoPlayer per title & device capabilities",
+                "Autoplay-next with synced gesture controls across players"
+            )
+        )
+
+        FeatureSection(
+            title = "Pro-Level Customization",
+            items = listOf(
+                "Swap engines, edit mpv.conf, pick preferred codecs, adjust display modes",
+                "Personalization: headers, ambient backgrounds, episode nav, theme songs",
+                "Auto-play and auto-skip toggles for binge sessions"
+            )
+        )
+
+        FeatureSection(
+            title = "Jellyseer Request Integration",
+            items = listOf(
+                "In-app Jellyseer console (base URL, login, API key fallback, sign-out)",
+                "Success/error feedback and full request workflow without leaving Void"
+            )
+        )
+
+        FeatureSection(
+            title = "Connectivity & Device Perks",
+            items = listOf(
+                "Connection Dashboard: manage endpoints, reorder/cleanup, health notifications",
+                "Quick actions: change password, favorites, downloads, Void TV login",
+                "Offline guards for pairing; hybrid network support"
+            )
+        )
+
+        FeatureSection(
+            title = "Accessibility & Inclusivity",
+            items = listOf(
+                "30+ languages and colorblind-friendly palettes",
+                "Adjustable typography and optional gesture controls",
+                "Previewable theme songs and animated ambient backgrounds"
+            )
+        )
+
+        FeatureSection(
+            title = "Advanced Video & Audio",
+            items = listOf(
+                "Transcoding-aware playback with HDR/SDR/Dolby Vision labeling",
+                "FFmpeg-powered audio (toggle on/off)",
+                "Audio passthrough support (where available)",
+                "Multi-user profiles with independent progress tracking",
+                "In-player overlay shows end time; Continue Watching shows time remaining"
+            )
+        )
+
+        FeatureSection(
+            title = "Connectivity Upgrades",
+            items = listOf(
+                "Re-added ambient animated background",
+                "Chromecast receiver integration",
+                "Manual & automatic mTLS handling"
+            )
+        )
     }
 
+    // ——— Existing “Void Info” block ———
     Column(
         modifier = Modifier.padding(vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -225,6 +309,25 @@ private fun FeatureItem(text: String) {
 }
 
 @Composable
+private fun FeatureSection(
+    title: String,
+    items: List<String>
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            text = title,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        items.forEach { FeatureItem(it) }
+    }
+}
+
+@Composable
 private fun FloatingContactIcons(
     modifier: Modifier = Modifier
 ) {
@@ -277,21 +380,6 @@ private fun FloatingContactIcons(
             Image(
                 painter = painterResource(id = R.drawable.github_icon),
                 contentDescription = "GitHub",
-                modifier = Modifier.size(24.dp)
-            )
-        }
-
-        FloatingActionButton(
-            onClick = {
-                val intent = Intent(Intent.ACTION_VIEW, "https://groups.google.com/u/1/g/void-hritwik".toUri())
-                context.startActivity(intent)
-            },
-            containerColor = PlayerBackground,
-            modifier = Modifier.size(56.dp)
-        ) {
-            Image(
-                painter = painterResource(id = R.drawable.google_groups_icon),
-                contentDescription = "Google group",
                 modifier = Modifier.size(24.dp)
             )
         }
