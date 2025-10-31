@@ -171,7 +171,6 @@ GPL V3 https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/LICENSE
 
 ### Special Thanks
 - **[Jellyfin Project](https://jellyfin.org/)** - For creating the amazing open-source media server
-- **[Findroid](https://github.com/jarnedemeulemeester/findroid) & [Streamyfin](https://github.com/frederic-loui/streamyfin) developers** - For inspiration and feature references
 - **[MPV](https://mpv.io/) & AndroidX Media3 teams** - For excellent media playback capabilities
 - **[@nitanmarcel](https://github.com/nitanmarcel)** - For the mpv-compose library that powers our video playback
 
