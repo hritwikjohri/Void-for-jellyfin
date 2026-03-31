@@ -129,3 +129,105 @@ fun AlphaScroller(
 
     }
 }
+
+@Composable
+fun AlphaScrollerWithSections(
+    sectionHeaderIndices: Map<Char, Int>,
+    gridState: LazyGridState,
+    modifier: Modifier = Modifier,
+    idleHideDelayMillis: Long = 1200,
+    onActiveLetterChange: (Char?) -> Unit = {}
+) {
+    val scope = rememberCoroutineScope()
+    val letters = remember { listOf('#') + ('A'..'Z') }
+
+    var visible by remember { mutableStateOf(false) }
+    var interacting by remember { mutableStateOf(false) }
+
+    LaunchedEffect(gridState.isScrollInProgress, interacting) {
+        if (gridState.isScrollInProgress || interacting) {
+            visible = true
+        } else {
+            kotlinx.coroutines.delay(idleHideDelayMillis)
+            if (!gridState.isScrollInProgress && !interacting) visible = false
+        }
+    }
+
+    var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+    fun yToLetter(y: Float): Char {
+        if (size.height <= 0) return letters.last()
+        val seg = size.height.toFloat() / letters.size
+        val idx = (y / seg).toInt().coerceIn(0, letters.lastIndex)
+        return letters[idx]
+    }
+    fun jumpTo(letter: Char) {
+        sectionHeaderIndices[letter]?.let { idx ->
+            scope.launch {
+                try {
+                    gridState.scrollToItem(idx)
+                } catch (e: Exception) {
+                    // Graceful degradation if index is out of bounds
+                }
+            }
+        }
+    }
+
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(150)),
+        exit = fadeOut(tween(200))
+    ) {
+        Column (
+            modifier = modifier
+                .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(calculateRoundedValue(24).sdp))
+                .onGloballyPositioned { size = it.size }
+                .pointerInput(letters, sectionHeaderIndices, size) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        interacting = true
+                        val first = yToLetter(down.position.y)
+                        onActiveLetterChange(first)
+                        jumpTo(first)
+
+                        val pointerId = down.id
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.find { it.id == pointerId }
+                                ?: event.changes.firstOrNull()
+                            if (change == null || !change.pressed) {
+                                interacting = false
+                                onActiveLetterChange(null)
+                                break
+                            }
+                            val letter = yToLetter(change.position.y)
+                            onActiveLetterChange(letter)
+                            jumpTo(letter)
+                            change.consume()
+                        }
+                    }
+                }
+                .clip(RoundedCornerShape(50))
+        ) {
+            Column(
+                modifier = modifier.padding(calculateRoundedValue(4).sdp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                letters.forEach { ch ->
+                    val isAvailable = sectionHeaderIndices.containsKey(ch)
+                    Text(
+                        text = ch.toString(),
+                        style = MaterialTheme.typography.labelSmall,
+                        textAlign = TextAlign.Center,
+                        color = if (isAvailable) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                        }
+                    )
+                }
+            }
+        }
+
+    }
+}

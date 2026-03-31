@@ -45,6 +45,7 @@
     <string name="sign_out">Sign Out</string>
     <string name="sign_out_confirm_message">Are you sure you want to sign out? You\'ll need to sign in again to access your media.</string>
     <string name="cancel">Cancel</string>
+    <string name="save">Save</string>
     <string name="back">Back</string>
     <string name="refresh">Refresh</string>
     <string name="on">On</string>
@@ -75,4 +76,6 @@
     <string name="dialog_preferred_audio_codec_title">Audio Codec</string>
     <string name="dialog_playback_quality_title">Playback Quality</string>
     <string name="dialog_playback_quality_original">Original stream</string>
+    <string name="mpv_config_title">MPV Config</string>
+    <string name="ok">Ok</string>
 </resources>

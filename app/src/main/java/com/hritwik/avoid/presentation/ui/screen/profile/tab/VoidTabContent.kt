@@ -15,13 +15,16 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +32,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hritwik.avoid.presentation.ui.components.common.SettingItem
 import com.hritwik.avoid.presentation.ui.components.common.SettingItemWithSwitch
+import com.hritwik.avoid.presentation.ui.components.dialogs.ThemeSongConfigDialog
 import com.hritwik.avoid.presentation.ui.theme.PrimaryText
 import com.hritwik.avoid.presentation.viewmodel.user.UserDataViewModel
 import com.hritwik.avoid.utils.helpers.calculateRoundedValue
@@ -46,15 +50,17 @@ fun VoidTabContent(
 ) {
     val homeSettings by userDataViewModel.homeSettings.collectAsStateWithLifecycle()
     val playbackSettings by userDataViewModel.playbackSettings.collectAsStateWithLifecycle()
-    val showFeaturedHeader = homeSettings.showFeaturedHeader
     val ambientBackgroundEnabled = homeSettings.ambientBackground
     val navigateEpisodesToSeason = homeSettings.navigateEpisodesToSeason
     val themeSongsEnabled = playbackSettings.playThemeSongs
+    val themeSongFallbackUrl = playbackSettings.themeSongFallbackUrl
     val autoPlayNext = playbackSettings.autoPlayNextEpisode
     val autoSkip = playbackSettings.autoSkipSegments
+    val tmdbEnabled by userDataViewModel.tmdbEnabled.collectAsStateWithLifecycle()
     val serverActionsEnabled = !isOffline
     val offlineMessage = "Reconnect to manage server settings"
     val context = LocalContext.current
+    var showThemeSongFallbackDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -132,16 +138,6 @@ fun VoidTabContent(
 
         item {
             SettingItemWithSwitch(
-                icon = Icons.Default.Star,
-                title = "Featured Header",
-                subtitle = "Show featured items on home",
-                checked = showFeaturedHeader,
-                onCheckedChange = { userDataViewModel.setShowFeaturedHeader(it) }
-            )
-        }
-
-        item {
-            SettingItemWithSwitch(
                 icon = Icons.Default.BlurOn,
                 title = "Animated Background",
                 subtitle = "Enable animated ambient backgrounds",
@@ -161,12 +157,28 @@ fun VoidTabContent(
         }
 
         item {
-            SettingItemWithSwitch(
+            val themeSongStatus = when {
+                !themeSongsEnabled -> "Off"
+                themeSongFallbackUrl.isBlank() -> "On (no fallback)"
+                else -> "On (with fallback)"
+            }
+
+            SettingItem(
                 icon = Icons.Default.MusicNote,
-                title = "Play Theme Songs",
-                subtitle = "Automatically play theme music on details",
-                checked = themeSongsEnabled,
-                onCheckedChange = { userDataViewModel.setPlayThemeSongs(it) }
+                title = "Theme Songs",
+                subtitle = "Configure theme music playback and fallback",
+                trailingText = themeSongStatus,
+                onClick = { showThemeSongFallbackDialog = true }
+            )
+        }
+
+        item {
+            SettingItemWithSwitch(
+                icon = Icons.Default.Search,
+                title = "TMDB Search Assist",
+                subtitle = "Improve search results for special character titles",
+                checked = tmdbEnabled,
+                onCheckedChange = { userDataViewModel.setTmdbEnabled(it) }
             )
         }
 
@@ -199,5 +211,18 @@ fun VoidTabContent(
                 modifier = Modifier.height(calculateRoundedValue(130).sdp)
             )
         }
+    }
+
+    if (showThemeSongFallbackDialog) {
+        ThemeSongConfigDialog(
+            initialEnabled = themeSongsEnabled,
+            initialUrl = themeSongFallbackUrl,
+            onSave = { enabled, fallbackUrl ->
+                userDataViewModel.setPlayThemeSongs(enabled)
+                userDataViewModel.setThemeSongFallbackUrl(fallbackUrl)
+                showThemeSongFallbackDialog = false
+            },
+            onDismiss = { showThemeSongFallbackDialog = false }
+        )
     }
 }

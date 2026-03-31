@@ -15,8 +15,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.size.Size
+import okhttp3.Headers
 import com.hritwik.avoid.R
 import com.hritwik.avoid.presentation.ui.theme.DeepBlack
 import com.hritwik.avoid.presentation.ui.theme.VoidDarkBlue
@@ -29,16 +31,33 @@ fun NetworkImage(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
-    placeholderResId: Int = R.drawable.void_icon
+    placeholderResId: Int = R.drawable.void_icon,
+    disableCache: Boolean = false,
+    authToken: String? = null
 ) {
     val context = LocalContext.current
     val rememberedData = remember(data) { data }
+    val memoryDiskPolicy = if (disableCache) CachePolicy.DISABLED else CachePolicy.ENABLED
+    val headers = remember(authToken) {
+        val builder = Headers.Builder()
+        if (!authToken.isNullOrBlank()) {
+            builder.add("X-Emby-Token", authToken)
+        }
+        if (disableCache) {
+            builder.add("Cache-Control", "no-cache, no-store")
+        }
+        builder.build()
+    }
     val painter = rememberAsyncImagePainter(
         ImageRequest.Builder(context)
             .data(rememberedData)
+            .headers(headers)
             .placeholder(placeholderResId)
             .error(placeholderResId)
             .size(Size.ORIGINAL)
+            .memoryCachePolicy(memoryDiskPolicy)
+            .diskCachePolicy(memoryDiskPolicy)
+            .networkCachePolicy(CachePolicy.ENABLED)
             .build()
     )
 

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SecondaryScrollableTabRow
 import androidx.compose.material3.Tab
@@ -26,7 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hritwik.avoid.domain.model.library.UserData
-import com.hritwik.avoid.presentation.ui.components.common.LogoutDialog
+import com.hritwik.avoid.presentation.ui.components.dialogs.LogoutDialog
 import com.hritwik.avoid.presentation.ui.components.visual.AnimatedAmbientBackground
 import com.hritwik.avoid.presentation.ui.screen.profile.tab.DownloadTabContent
 import com.hritwik.avoid.presentation.ui.screen.profile.tab.ServerTabContent
@@ -41,6 +42,7 @@ import com.hritwik.avoid.utils.helpers.calculateRoundedValue
 import ir.kaaveh.sdpcompose.sdp
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun Profile(
     onNavigateToFavorites: () -> Unit = {},
@@ -148,7 +150,6 @@ fun Profile(
                         config = jellyseerSettings,
                         authState = jellyseerAuthState,
                         onBaseUrlChange = userDataViewModel::updateJellyseerBaseUrl,
-                        onApiKeyChange = userDataViewModel::updateJellyseerApiKey,
                         onLogin = userDataViewModel::loginToJellyseer,
                         onLogout = userDataViewModel::logoutOfJellyseer,
                         onClearFeedback = userDataViewModel::clearJellyseerAuthFeedback

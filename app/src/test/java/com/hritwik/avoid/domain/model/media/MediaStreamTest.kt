@@ -6,7 +6,12 @@ import org.junit.Test
 
 class MediaStreamTest {
 
-    private fun createMediaStream(width: Int?, height: Int?) = MediaStream(
+    private fun createMediaStream(
+        width: Int?,
+        height: Int?,
+        videoRange: String? = null,
+        videoRangeType: String? = null,
+    ) = MediaStream(
         index = 0,
         type = MediaStreamType.VIDEO,
         codec = null,
@@ -14,6 +19,8 @@ class MediaStreamTest {
         displayLanguage = null,
         title = null,
         displayTitle = null,
+        videoRange = videoRange,
+        videoRangeType = videoRangeType,
         isDefault = false,
         isForced = false,
         isExternal = false,
@@ -46,5 +53,48 @@ class MediaStreamTest {
         val stream = createMediaStream(width = null, height = null)
 
         assertEquals(VideoQuality.SD_480P, stream.videoQuality)
+    }
+
+    @Test
+    fun `dynamicRangeLabel uses DoVi slash HDR10 for DOVIWithHDR10`() {
+        val stream = createMediaStream(
+            width = 1920,
+            height = 1080,
+            videoRangeType = "DOVIWithHDR10",
+        )
+
+        assertEquals("DoVi/HDR10", stream.dynamicRangeLabel)
+    }
+
+    @Test
+    fun `dynamicRangeLabel uses DoVi for DOVI`() {
+        val stream = createMediaStream(
+            width = 1920,
+            height = 1080,
+            videoRangeType = "DOVI",
+        )
+
+        assertEquals("DoVi", stream.dynamicRangeLabel)
+    }
+
+    @Test
+    fun `dynamicRangeLabel uses HDR10 for HDR10`() {
+        val stream = createMediaStream(
+            width = 1920,
+            height = 1080,
+            videoRangeType = "HDR10",
+        )
+
+        assertEquals("HDR10", stream.dynamicRangeLabel)
+    }
+
+    @Test
+    fun `dynamicRangeLabel falls back to SDR when range metadata missing`() {
+        val stream = createMediaStream(
+            width = 1920,
+            height = 1080,
+        )
+
+        assertEquals("SDR", stream.dynamicRangeLabel)
     }
 }

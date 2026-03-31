@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +53,7 @@ fun DownloadsScreen(
     viewModel: UserDataViewModel = hiltViewModel(),
 ) {
     val downloads by viewModel.downloads.collectAsStateWithLifecycle()
+    var downloadFilter by remember { mutableStateOf(DownloadsFilter.ALL) }
 
     LaunchedEffect(Unit) {
         viewModel.serviceEvents.collect {}
@@ -70,6 +72,14 @@ fun DownloadsScreen(
 
     val completedDownloads = downloads.filter {
         it.status == DownloadService.DownloadStatus.COMPLETED
+    }
+    val visibleActiveDownloads = when (downloadFilter) {
+        DownloadsFilter.ALL, DownloadsFilter.ACTIVE -> activeDownloads
+        DownloadsFilter.OFFLINE -> emptyList()
+    }
+    val visibleCompletedDownloads = when (downloadFilter) {
+        DownloadsFilter.ALL, DownloadsFilter.OFFLINE -> completedDownloads
+        DownloadsFilter.ACTIVE -> emptyList()
     }
 
     val allActivePaused = activeDownloads.isNotEmpty() &&
@@ -191,68 +201,95 @@ fun DownloadsScreen(
                 }
 
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    if (activeDownloads.isEmpty() && completedDownloads.isEmpty()) {
+                    if (downloads.isEmpty()) {
                         EmptyState(
                             title = "No downloads",
                             description = "Looks like you don't have any content offline."
                         )
                     } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(calculateRoundedValue(8).sdp),
-                            contentPadding = PaddingValues(
-                                vertical = calculateRoundedValue(16).sdp
-                            )
-                        ) {
-                            if (activeDownloads.isNotEmpty()) {
-                                item {
-                                    SectionHeader(
-                                        title = "Downloading",
-                                    )
-                                }
-                                items(activeDownloads) { info ->
-                                    val downloadId = info.mediaSourceId ?: info.mediaItem.id
-                                    DownloadItemRow(
-                                        downloadInfo = info,
-                                        onClick = {
-                                            if (selectionMode) {
-                                                updateSelection(downloadId, null)
-                                            }
-                                        },
-                                        isActive = true,
-                                        selectionEnabled = selectionMode,
-                                        isSelected = downloadId in selectedIds,
-                                        onSelectionChange = { checked ->
-                                            updateSelection(downloadId, checked)
-                                        }
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(
+                                        horizontal = calculateRoundedValue(16).sdp,
+                                        vertical = calculateRoundedValue(8).sdp
+                                    ),
+                                horizontalArrangement = Arrangement.spacedBy(calculateRoundedValue(8).sdp)
+                            ) {
+                                DownloadsFilter.entries.forEach { filter ->
+                                    FilterChip(
+                                        selected = downloadFilter == filter,
+                                        onClick = { downloadFilter = filter },
+                                        label = { Text(filter.label) }
                                     )
                                 }
                             }
 
-                            if (completedDownloads.isNotEmpty()) {
-                                item {
-                                    SectionHeader(
-                                        title = "Completed Downloads",
+                            if (visibleActiveDownloads.isEmpty() && visibleCompletedDownloads.isEmpty()) {
+                                EmptyState(
+                                    title = "No matching downloads",
+                                    description = "Try switching filters to see other download items."
+                                )
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalArrangement = Arrangement.spacedBy(calculateRoundedValue(8).sdp),
+                                    contentPadding = PaddingValues(
+                                        vertical = calculateRoundedValue(8).sdp
                                     )
-                                }
-
-                                items(completedDownloads) { info ->
-                                    val downloadId = info.mediaSourceId ?: info.mediaItem.id
-                                    DownloadItemRow(
-                                        downloadInfo = info,
-                                        onClick = {
-                                            if (selectionMode) {
-                                                updateSelection(downloadId, null)
-                                            } else {
-                                                onPlay(info.mediaItem)
-                                            }
-                                        },
-                                        selectionEnabled = selectionMode,
-                                        isSelected = downloadId in selectedIds,
-                                        onSelectionChange = { checked ->
-                                            updateSelection(downloadId, checked)
+                                ) {
+                                    if (visibleActiveDownloads.isNotEmpty()) {
+                                        item {
+                                            SectionHeader(
+                                                title = "Downloading",
+                                            )
                                         }
-                                    )
+                                        items(visibleActiveDownloads) { info ->
+                                            val downloadId = info.mediaSourceId ?: info.mediaItem.id
+                                            DownloadItemRow(
+                                                downloadInfo = info,
+                                                onClick = {
+                                                    if (selectionMode) {
+                                                        updateSelection(downloadId, null)
+                                                    }
+                                                },
+                                                isActive = true,
+                                                selectionEnabled = selectionMode,
+                                                isSelected = downloadId in selectedIds,
+                                                onSelectionChange = { checked ->
+                                                    updateSelection(downloadId, checked)
+                                                }
+                                            )
+                                        }
+                                    }
+
+                                    if (visibleCompletedDownloads.isNotEmpty()) {
+                                        item {
+                                            SectionHeader(
+                                                title = "Completed Downloads",
+                                            )
+                                        }
+
+                                        items(visibleCompletedDownloads) { info ->
+                                            val downloadId = info.mediaSourceId ?: info.mediaItem.id
+                                            DownloadItemRow(
+                                                downloadInfo = info,
+                                                onClick = {
+                                                    if (selectionMode) {
+                                                        updateSelection(downloadId, null)
+                                                    } else {
+                                                        onPlay(info.mediaItem)
+                                                    }
+                                                },
+                                                selectionEnabled = selectionMode,
+                                                isSelected = downloadId in selectedIds,
+                                                onSelectionChange = { checked ->
+                                                    updateSelection(downloadId, checked)
+                                                }
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -261,4 +298,10 @@ fun DownloadsScreen(
             }
         }
     }
+}
+
+private enum class DownloadsFilter(val label: String) {
+    ALL("All"),
+    ACTIVE("In Progress"),
+    OFFLINE("Offline")
 }

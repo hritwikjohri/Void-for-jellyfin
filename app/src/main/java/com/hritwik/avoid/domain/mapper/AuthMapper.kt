@@ -13,12 +13,13 @@ import javax.inject.Singleton
 class AuthMapper @Inject constructor() {
 
     
-    fun mapServerInfoToServer(dto: ServerInfo, serverUrl: String): Server {
+    fun mapServerInfoToServer(dto: ServerInfo, serverUrl: String, isLegacyPlaybackApi: Boolean = false): Server {
         return Server(
             url = serverUrl,
             name = dto.serverName ?: "Jellyfin Server",
             version = dto.version ?: "Unknown",
-            isConnected = true
+            isConnected = true,
+            isLegacyPlaybackApi = isLegacyPlaybackApi
         )
     }
 
@@ -51,13 +52,15 @@ class AuthMapper @Inject constructor() {
         url: String,
         name: String?,
         version: String?,
-        isConnected: Boolean = false
+        isConnected: Boolean = false,
+        isLegacyPlaybackApi: Boolean = false
     ): Server {
         return Server(
             url = url,
             name = name ?: "Jellyfin Server",
             version = version ?: "Unknown",
-            isConnected = isConnected
+            isConnected = isConnected,
+            isLegacyPlaybackApi = isLegacyPlaybackApi
         )
     }
 

@@ -1,6 +1,20 @@
 package com.hritwik.avoid.domain.model.playback
 
 
+data class TranscodeRequestParameters(
+    val videoCodec: String?,
+    val videoCodecProfile: String?,
+    val audioCodec: String?,
+    val maxWidth: Int?,
+    val maxHeight: Int?,
+    val maxBitrate: Int?,
+    val videoBitrate: Int?,
+    val allowVideoStreamCopy: Boolean,
+    val allowAudioStreamCopy: Boolean,
+    val enableAutoStreamCopy: Boolean,
+)
+
+
 enum class PlaybackTranscodeOption(
     val label: String,
     val isStaticStream: Boolean,
@@ -65,6 +79,31 @@ enum class PlaybackTranscodeOption(
         get() = videoBitrate ?: maxBitrate
 
     
+    fun resolveParameters(
+        videoCodecOverride: String? = null,
+        audioCodecOverride: String? = null,
+        videoCodecProfileOverride: String? = null,
+        allowAudioStreamCopyOverride: Boolean? = null,
+    ): TranscodeRequestParameters {
+        val resolvedVideoCodec = videoCodecOverride?.takeIf { it.isNotBlank() } ?: videoCodec
+        val resolvedVideoProfile = videoCodecProfileOverride?.takeIf { it.isNotBlank() } ?: videoCodecProfile
+        val resolvedAudioCodec = audioCodecOverride?.takeIf { it.isNotBlank() } ?: audioCodec
+        val resolvedAllowAudioStreamCopy = allowAudioStreamCopyOverride ?: defaultAllowAudioStreamCopy
+        return TranscodeRequestParameters(
+            videoCodec = resolvedVideoCodec,
+            videoCodecProfile = resolvedVideoProfile,
+            audioCodec = resolvedAudioCodec,
+            maxWidth = maxWidth,
+            maxHeight = maxHeight,
+            maxBitrate = maxBitrate,
+            videoBitrate = videoBitrate,
+            allowVideoStreamCopy = allowVideoStreamCopy,
+            allowAudioStreamCopy = resolvedAllowAudioStreamCopy,
+            enableAutoStreamCopy = enableAutoStreamCopy,
+        )
+    }
+
+
     fun appendQueryParameters(
         builder: StringBuilder,
         videoCodecOverride: String? = null,
@@ -72,25 +111,25 @@ enum class PlaybackTranscodeOption(
         videoCodecProfileOverride: String? = null,
         allowAudioStreamCopyOverride: Boolean? = null,
     ) {
-        val resolvedVideoCodec = videoCodecOverride?.takeIf { it.isNotBlank() } ?: videoCodec
-        val resolvedVideoProfile = videoCodecProfileOverride?.takeIf { it.isNotBlank() } ?: videoCodecProfile
-        val resolvedAudioCodec = audioCodecOverride?.takeIf { it.isNotBlank() } ?: audioCodec
-        val resolvedAllowAudioStreamCopy = allowAudioStreamCopyOverride ?: defaultAllowAudioStreamCopy
-        resolvedVideoCodec?.let { codec ->
+        val parameters = resolveParameters(
+            videoCodecOverride = videoCodecOverride,
+            audioCodecOverride = audioCodecOverride,
+            videoCodecProfileOverride = videoCodecProfileOverride,
+            allowAudioStreamCopyOverride = allowAudioStreamCopyOverride,
+        )
+        parameters.videoCodec?.let { codec ->
             builder.append("&VideoCodec=").append(codec)
-            resolvedVideoProfile?.let { profile ->
+            parameters.videoCodecProfile?.let { profile ->
                 builder.append("&Profile=").append(profile)
             }
         }
-        resolvedAudioCodec?.let { builder.append("&AudioCodec=").append(it) }
-        maxWidth?.let { builder.append("&MaxWidth=").append(it) }
-        maxHeight?.let { builder.append("&MaxHeight=").append(it) }
-        maxBitrate?.let {
-            builder.append("&MaxBitrate=").append(it)
-        }
-        videoBitrate?.let { builder.append("&VideoBitrate=").append(it) }
-        builder.append("&AllowVideoStreamCopy=").append(allowVideoStreamCopy)
-        builder.append("&AllowAudioStreamCopy=").append(resolvedAllowAudioStreamCopy)
-        builder.append("&EnableAutoStreamCopy=").append(enableAutoStreamCopy)
+        parameters.audioCodec?.let { builder.append("&AudioCodec=").append(it) }
+        parameters.maxWidth?.let { builder.append("&MaxWidth=").append(it) }
+        parameters.maxHeight?.let { builder.append("&MaxHeight=").append(it) }
+        parameters.maxBitrate?.let { builder.append("&MaxBitrate=").append(it) }
+        parameters.videoBitrate?.let { builder.append("&VideoBitrate=").append(it) }
+        builder.append("&AllowVideoStreamCopy=").append(parameters.allowVideoStreamCopy)
+        builder.append("&AllowAudioStreamCopy=").append(parameters.allowAudioStreamCopy)
+        builder.append("&EnableAutoStreamCopy=").append(parameters.enableAutoStreamCopy)
     }
 }

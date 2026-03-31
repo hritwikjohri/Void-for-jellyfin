@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Parent must be an AppCompat-based theme, NOT Theme.Void (which extends
+        android:Theme.Material.NoActionBar). MediaRouteButton internally calls
+        MediaRouterThemeHelper.getControllerColor() which resolves colorSurface
+        from the context theme. If colorSurface resolves to 0 (transparent),
+        ColorUtils.calculateContrast() throws IllegalArgumentException.
+        Theme.AppCompat.NoActionBar properly defines all AppCompat/Material
+        attributes, preventing that crash.
+    -->
+    <style name="Theme.Void.CastButton" parent="Theme.AppCompat.NoActionBar">
+        <item name="mediaRouteButtonTint">@color/cast_button_tint</item>
+        <item name="android:colorBackground">@color/black</item>
+    </style>
+</resources>

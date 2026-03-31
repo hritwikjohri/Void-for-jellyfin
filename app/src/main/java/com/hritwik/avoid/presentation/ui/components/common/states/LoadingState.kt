@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import com.hritwik.avoid.R
+import com.hritwik.avoid.presentation.ui.components.common.SubtleShinySignature
 
 @Composable
 fun LoadingState() {
@@ -54,4 +55,8 @@ fun LoadingState() {
                 }
         )
     }
+
+    SubtleShinySignature(
+        modifier = Modifier.padding(bottom = calculateRoundedValue(90).sdp)
+    )
 }

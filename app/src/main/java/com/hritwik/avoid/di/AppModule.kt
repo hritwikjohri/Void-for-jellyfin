@@ -7,6 +7,7 @@ import com.hritwik.avoid.data.network.LocalNetworkSslHelper
 import com.hritwik.avoid.data.network.MtlsCertificateProvider
 import com.hritwik.avoid.data.network.OfflineCacheInterceptor
 import com.hritwik.avoid.data.network.PriorityDispatcher
+import com.hritwik.avoid.data.network.SmartCacheInterceptor
 import com.hritwik.avoid.utils.helpers.ConnectivityObserver
 import com.hritwik.avoid.utils.helpers.NetworkMonitor
 import com.hritwik.avoid.utils.constants.AppConstants
@@ -34,11 +35,16 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideSmartCacheInterceptor(): SmartCacheInterceptor = SmartCacheInterceptor()
+
+    @Provides
+    @Singleton
     fun provideOkHttpClient(
         @ApplicationContext context: Context,
         loggingInterceptor: HttpLoggingInterceptor,
         cdnInterceptor: CdnInterceptor,
         offlineCacheInterceptor: OfflineCacheInterceptor,
+        smartCacheInterceptor: SmartCacheInterceptor,
         connectionPool: ConnectionPool,
         mtlsCertificateProvider: MtlsCertificateProvider,
     ): OkHttpClient {
@@ -51,16 +57,7 @@ object AppModule {
             .hostnameVerifier(sslConfig.hostnameVerifier)
             .cache(cache)
             .connectionPool(connectionPool)
-            .addNetworkInterceptor { chain ->
-                val response = chain.proceed(chain.request())
-                response.newBuilder()
-                    .header(
-                        "Cache-Control",
-                        response.header("Cache-Control") ?: "public, max-age=60"
-                    )
-                    .removeHeader("Pragma")
-                    .build()
-            }
+            .addNetworkInterceptor(smartCacheInterceptor)
             .addInterceptor(offlineCacheInterceptor)
             .addInterceptor(cdnInterceptor)
             .addInterceptor(loggingInterceptor)
@@ -77,6 +74,7 @@ object AppModule {
         @ApplicationContext context: Context,
         cdnInterceptor: CdnInterceptor,
         offlineCacheInterceptor: OfflineCacheInterceptor,
+        smartCacheInterceptor: SmartCacheInterceptor,
         connectionPool: ConnectionPool,
         mtlsCertificateProvider: MtlsCertificateProvider,
     ): OkHttpClient {
@@ -89,16 +87,7 @@ object AppModule {
             .hostnameVerifier(sslConfig.hostnameVerifier)
             .cache(cache)
             .connectionPool(connectionPool)
-            .addNetworkInterceptor { chain ->
-                val response = chain.proceed(chain.request())
-                response.newBuilder()
-                    .header(
-                        "Cache-Control",
-                        response.header("Cache-Control") ?: "public, max-age=60"
-                    )
-                    .removeHeader("Pragma")
-                    .build()
-            }
+            .addNetworkInterceptor(smartCacheInterceptor)
             .addInterceptor(offlineCacheInterceptor)
             .addInterceptor(cdnInterceptor)
             .connectTimeout(AppConstants.NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)

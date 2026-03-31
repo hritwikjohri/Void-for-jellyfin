@@ -17,6 +17,7 @@ import com.hritwik.avoid.domain.model.auth.ServerConnectionMethod
 import com.hritwik.avoid.domain.model.jellyseer.JellyseerConfig
 import com.hritwik.avoid.domain.model.playback.DecoderMode
 import com.hritwik.avoid.domain.model.playback.DisplayMode
+import com.hritwik.avoid.domain.model.playback.HdrFormatPreference
 import com.hritwik.avoid.domain.model.playback.PlayerType
 import com.hritwik.avoid.domain.model.playback.PreferredAudioCodec
 import com.hritwik.avoid.domain.model.playback.PreferredVideoCodec
@@ -66,22 +67,23 @@ class PreferencesManager @Inject constructor(
     private val mtlsCertificateFile: File
         get() = File(context.filesDir, "mtls_certificate.bin")
 
-    init {
-        runBlocking { migrateAuthDataIfNeeded() }
-    }
+    // Removed runBlocking from init - migration is now called from VoidApplication
+    // in background to avoid blocking DI initialization
 
     companion object {
-        
+
         private val SERVER_URL = stringPreferencesKey(PreferenceConstants.KEY_SERVER_URL)
         private val SERVER_NAME = stringPreferencesKey(PreferenceConstants.KEY_SERVER_NAME)
         private val SERVER_VERSION = stringPreferencesKey(PreferenceConstants.KEY_SERVER_VERSION)
+        private val SERVER_LEGACY_PLAYBACK =
+            booleanPreferencesKey(PreferenceConstants.KEY_SERVER_LEGACY_PLAYBACK)
         private val SERVER_CONNECTED = stringPreferencesKey(PreferenceConstants.KEY_SERVER_CONNECTED)
         private val SERVER_CONNECTIONS = stringPreferencesKey(PreferenceConstants.KEY_SERVER_CONNECTIONS)
         private val MTLS_ENABLED = booleanPreferencesKey(PreferenceConstants.KEY_MTLS_ENABLED)
         private val MTLS_CERTIFICATE_NAME = stringPreferencesKey(PreferenceConstants.KEY_MTLS_CERTIFICATE_NAME)
         private val MTLS_CERTIFICATE_PASSWORD = stringPreferencesKey(PreferenceConstants.KEY_MTLS_CERTIFICATE_PASSWORD)
 
-        
+
         private val USERNAME = stringPreferencesKey(PreferenceConstants.KEY_USERNAME)
         private val ACCESS_TOKEN = stringPreferencesKey(PreferenceConstants.KEY_ACCESS_TOKEN)
         private val USER_ID = stringPreferencesKey(PreferenceConstants.KEY_USER_ID)
@@ -96,14 +98,18 @@ class PreferencesManager @Inject constructor(
         private val AMBIENT_BACKGROUND = booleanPreferencesKey(PreferenceConstants.KEY_AMBIENT_BACKGROUND)
         private val NAVIGATE_EPISODES_TO_SEASON =
             booleanPreferencesKey(PreferenceConstants.KEY_NAVIGATE_EPISODES_TO_SEASON)
+        private val NAVIGATE_EPISODES_MIGRATED =
+            booleanPreferencesKey("navigate_episodes_to_season_migrated_v2")
         private val FONT_SCALE = floatPreferencesKey(PreferenceConstants.KEY_FONT_SCALE)
         private val PREFERRED_LANGUAGE = stringPreferencesKey(PreferenceConstants.KEY_PREFERRED_LANGUAGE)
         private val GESTURE_CONTROLS = booleanPreferencesKey(PreferenceConstants.KEY_GESTURE_CONTROLS)
         private val HIGH_CONTRAST = booleanPreferencesKey(PreferenceConstants.KEY_HIGH_CONTRAST)
         private val FIRST_RUN_COMPLETED = booleanPreferencesKey(PreferenceConstants.KEY_FIRST_RUN_COMPLETED)
         private val RECENT_SEARCHES = stringPreferencesKey(PreferenceConstants.KEY_RECENT_SEARCHES)
+        private val TMDB_ENABLED = booleanPreferencesKey(PreferenceConstants.KEY_TMDB_ENABLED)
+        private val TMDB_API_KEY = stringPreferencesKey(PreferenceConstants.KEY_TMDB_API_KEY)
 
-        
+
         private val AUTO_PLAY = booleanPreferencesKey(PreferenceConstants.KEY_AUTO_PLAY)
         private val CONTINUE_WATCHING = booleanPreferencesKey(PreferenceConstants.KEY_CONTINUE_WATCHING)
         private val STREAMING_QUALITY = stringPreferencesKey(PreferenceConstants.KEY_STREAMING_QUALITY)
@@ -118,22 +124,29 @@ class PreferencesManager @Inject constructor(
         private val SUBTITLE_SIZE = stringPreferencesKey(PreferenceConstants.KEY_SUBTITLE_SIZE)
         private val AUDIO_TRACK_LANGUAGE = stringPreferencesKey(PreferenceConstants.KEY_AUDIO_TRACK_LANGUAGE)
         private val SUBTITLE_LANGUAGE = stringPreferencesKey(PreferenceConstants.KEY_SUBTITLE_LANGUAGE)
+        private val PLAYER_PROGRESS_COLOR = stringPreferencesKey(PreferenceConstants.KEY_PLAYER_PROGRESS_COLOR)
+        private val PLAYER_PROGRESS_SEEK_COLOR =
+            stringPreferencesKey(PreferenceConstants.KEY_PLAYER_PROGRESS_SEEK_COLOR)
         private val PLAY_THEME_SONGS = booleanPreferencesKey(PreferenceConstants.KEY_PLAY_THEME_SONGS)
+        private val THEME_SONG_FALLBACK_URL =
+            stringPreferencesKey(PreferenceConstants.KEY_THEME_SONG_FALLBACK_URL)
         private val DISPLAY_MODE = stringPreferencesKey(PreferenceConstants.KEY_DISPLAY_MODE)
         private val DECODER_MODE = stringPreferencesKey(PreferenceConstants.KEY_DECODER_MODE)
         private val PREFERRED_VIDEO_CODEC = stringPreferencesKey(PreferenceConstants.KEY_PREFERRED_VIDEO_CODEC)
         private val PREFERRED_AUDIO_CODEC = stringPreferencesKey(PreferenceConstants.KEY_PREFERRED_AUDIO_CODEC)
         private val AUTO_SKIP_SEGMENTS = booleanPreferencesKey(PreferenceConstants.KEY_AUTO_SKIP_SEGMENTS)
         private val PLAYER_TYPE = stringPreferencesKey(PreferenceConstants.KEY_PLAYER_TYPE)
+        private val HDR_FORMAT_PREFERENCE =
+            stringPreferencesKey(PreferenceConstants.KEY_HDR_FORMAT_PREFERENCE)
 
-        
+
         private val IMAGE_CACHE_SIZE = longPreferencesKey(PreferenceConstants.KEY_IMAGE_CACHE_SIZE)
         private val VIDEO_CACHE_SIZE = longPreferencesKey(PreferenceConstants.KEY_VIDEO_CACHE_SIZE)
         private val CACHE_WIFI_ONLY = booleanPreferencesKey(PreferenceConstants.KEY_CACHE_WIFI_ONLY)
         private val MAX_STALE_DAYS = intPreferencesKey(PreferenceConstants.KEY_MAX_STALE_DAYS)
         private val PREFETCH_ENABLED = booleanPreferencesKey(PreferenceConstants.KEY_PREFETCH_ENABLED)
 
-        
+
         private val DATA_USAGE_RX = longPreferencesKey(PreferenceConstants.KEY_DATA_USAGE_RX)
         private val DATA_USAGE_TX = longPreferencesKey(PreferenceConstants.KEY_DATA_USAGE_TX)
         private val DAILY_DATA_CAP = longPreferencesKey(PreferenceConstants.KEY_DAILY_DATA_CAP)
@@ -148,18 +161,17 @@ class PreferencesManager @Inject constructor(
         private val CLEANUP_ENABLED = booleanPreferencesKey(PreferenceConstants.KEY_CLEANUP_ENABLED)
 
         private val JELLYSEER_BASE_URL = stringPreferencesKey(PreferenceConstants.KEY_JELLYSEER_BASE_URL)
-        private val JELLYSEER_API_KEY = stringPreferencesKey(PreferenceConstants.KEY_JELLYSEER_API_KEY)
         private val JELLYSEER_SESSION = stringPreferencesKey(PreferenceConstants.KEY_JELLYSEER_SESSION)
         private val JELLYSEER_USER_ID = longPreferencesKey(PreferenceConstants.KEY_JELLYSEER_USER_ID)
         private val JELLYSEER_USER_NAME = stringPreferencesKey(PreferenceConstants.KEY_JELLYSEER_USER_NAME)
         private val JELLYSEER_USER_EMAIL = stringPreferencesKey(PreferenceConstants.KEY_JELLYSEER_USER_EMAIL)
 
-        
+
         private const val PLAYBACK_POSITION_PREFIX = "playback_position_"
         private const val PLAYBACK_PREFERENCES_PREFIX = "playback_preferences"
     }
 
-    
+
 
     fun getThemeMode(): Flow<String> = dataStore.data.map { preferences ->
         preferences[THEME_MODE] ?: PreferenceConstants.DEFAULT_THEME_MODE
@@ -190,6 +202,14 @@ class PreferencesManager @Inject constructor(
         prefs[PREFERRED_LANGUAGE] ?: PreferenceConstants.DEFAULT_PREFERRED_LANGUAGE
     }
 
+    fun getTmdbEnabled(): Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[TMDB_ENABLED] ?: PreferenceConstants.DEFAULT_TMDB_ENABLED
+    }
+
+    fun getTmdbApiKey(): Flow<String> = dataStore.data.map { prefs ->
+        prefs[TMDB_API_KEY] ?: PreferenceConstants.DEFAULT_TMDB_API_KEY
+    }
+
     fun getGestureControlsEnabled(): Flow<Boolean> = dataStore.data.map { prefs ->
         prefs[GESTURE_CONTROLS] ?: PreferenceConstants.DEFAULT_GESTURE_CONTROLS
     }
@@ -200,14 +220,12 @@ class PreferencesManager @Inject constructor(
 
     fun getJellyseerConfig(): Flow<JellyseerConfig> = dataStore.data.map { preferences ->
         val url = preferences[JELLYSEER_BASE_URL] ?: PreferenceConstants.DEFAULT_JELLYSEER_BASE_URL
-        val apiKey = preferences[JELLYSEER_API_KEY] ?: PreferenceConstants.DEFAULT_JELLYSEER_API_KEY
         val session = preferences[JELLYSEER_SESSION] ?: PreferenceConstants.DEFAULT_JELLYSEER_SESSION
         val userId = preferences[JELLYSEER_USER_ID]
         val userName = preferences[JELLYSEER_USER_NAME] ?: PreferenceConstants.DEFAULT_JELLYSEER_USER_NAME
         val userEmail = preferences[JELLYSEER_USER_EMAIL] ?: PreferenceConstants.DEFAULT_JELLYSEER_USER_EMAIL
         JellyseerConfig(
             baseUrl = url.trim(),
-            apiKey = apiKey.trim(),
             sessionCookie = session.trim(),
             userId = userId,
             userEmail = userEmail.trim().ifBlank { null },
@@ -244,6 +262,10 @@ class PreferencesManager @Inject constructor(
             if (!preferences.contains(PLAY_THEME_SONGS)) {
                 preferences[PLAY_THEME_SONGS] = PreferenceConstants.DEFAULT_PLAY_THEME_SONGS
             }
+            if (!preferences.contains(THEME_SONG_FALLBACK_URL)) {
+                preferences[THEME_SONG_FALLBACK_URL] =
+                    PreferenceConstants.DEFAULT_THEME_SONG_FALLBACK_URL
+            }
             if (!preferences.contains(PREFERRED_VIDEO_CODEC)) {
                 preferences[PREFERRED_VIDEO_CODEC] = PreferenceConstants.DEFAULT_PREFERRED_VIDEO_CODEC
             }
@@ -258,6 +280,10 @@ class PreferencesManager @Inject constructor(
             }
             if (!preferences.contains(DECODER_MODE)) {
                 preferences[DECODER_MODE] = PreferenceConstants.DEFAULT_DECODER_MODE
+            }
+            if (!preferences.contains(HDR_FORMAT_PREFERENCE)) {
+                preferences[HDR_FORMAT_PREFERENCE] =
+                    PreferenceConstants.DEFAULT_HDR_FORMAT_PREFERENCE
             }
             if (!preferences.contains(PLAYER_TYPE)) {
                 preferences[PLAYER_TYPE] = PreferenceConstants.DEFAULT_PLAYER_TYPE
@@ -274,11 +300,25 @@ class PreferencesManager @Inject constructor(
             if (!preferences.contains(PREFERRED_LANGUAGE)) {
                 preferences[PREFERRED_LANGUAGE] = PreferenceConstants.DEFAULT_PREFERRED_LANGUAGE
             }
+            if (!preferences.contains(TMDB_ENABLED)) {
+                preferences[TMDB_ENABLED] = PreferenceConstants.DEFAULT_TMDB_ENABLED
+            }
+            if (!preferences.contains(TMDB_API_KEY)) {
+                preferences[TMDB_API_KEY] = PreferenceConstants.DEFAULT_TMDB_API_KEY
+            }
             if (!preferences.contains(GESTURE_CONTROLS)) {
                 preferences[GESTURE_CONTROLS] = PreferenceConstants.DEFAULT_GESTURE_CONTROLS
             }
             if (!preferences.contains(HIGH_CONTRAST)) {
                 preferences[HIGH_CONTRAST] = PreferenceConstants.DEFAULT_HIGH_CONTRAST
+            }
+            if (!preferences.contains(PLAYER_PROGRESS_COLOR)) {
+                preferences[PLAYER_PROGRESS_COLOR] =
+                    PreferenceConstants.DEFAULT_PLAYER_PROGRESS_COLOR
+            }
+            if (!preferences.contains(PLAYER_PROGRESS_SEEK_COLOR)) {
+                preferences[PLAYER_PROGRESS_SEEK_COLOR] =
+                    PreferenceConstants.DEFAULT_PLAYER_PROGRESS_SEEK_COLOR
             }
             if (!preferences.contains(SYNC_ENABLED)) {
                 preferences[SYNC_ENABLED] = PreferenceConstants.DEFAULT_SYNC_ENABLED
@@ -299,13 +339,17 @@ class PreferencesManager @Inject constructor(
         dataStore.edit { it[THEME_MODE] = mode }
     }
 
+    suspend fun saveTmdbEnabled(enabled: Boolean) {
+        dataStore.edit { it[TMDB_ENABLED] = enabled }
+    }
+
+    suspend fun saveTmdbApiKey(apiKey: String) {
+        dataStore.edit { it[TMDB_API_KEY] = apiKey.trim() }
+    }
+
     suspend fun updateJellyseerBaseUrl(baseUrl: String) {
         val sanitized = baseUrl.trim()
         dataStore.edit { it[JELLYSEER_BASE_URL] = sanitized }
-    }
-
-    suspend fun updateJellyseerApiKey(apiKey: String) {
-        dataStore.edit { it[JELLYSEER_API_KEY] = apiKey.trim() }
     }
 
     suspend fun updateJellyseerSessionCookie(cookie: String) {
@@ -349,7 +393,7 @@ class PreferencesManager @Inject constructor(
         dataStore.edit { it[HIGH_CONTRAST] = enabled }
     }
 
-    
+
 
     fun isFirstRunCompleted(): Flow<Boolean> = dataStore.data.map { prefs ->
         prefs[FIRST_RUN_COMPLETED] ?: PreferenceConstants.DEFAULT_FIRST_RUN_COMPLETED
@@ -359,7 +403,7 @@ class PreferencesManager @Inject constructor(
         dataStore.edit { it[FIRST_RUN_COMPLETED] = completed }
     }
 
-    
+
 
     fun getSyncEnabled(): Flow<Boolean> = dataStore.data.map { preferences ->
         preferences[SYNC_ENABLED] ?: PreferenceConstants.DEFAULT_SYNC_ENABLED
@@ -385,7 +429,7 @@ class PreferencesManager @Inject constructor(
         dataStore.edit { it[CLEANUP_ENABLED] = enabled }
     }
 
-    
+
 
     suspend fun saveServerConfig(url: String, name: String) {
         dataStore.edit { preferences ->
@@ -406,10 +450,15 @@ class PreferencesManager @Inject constructor(
         }
     }
 
-    suspend fun saveServerDetails(serverVersion: String, serverConnected: Boolean) {
+    suspend fun saveServerDetails(
+        serverVersion: String,
+        serverConnected: Boolean,
+        isLegacyPlaybackApi: Boolean
+    ) {
         dataStore.edit { preferences ->
             preferences[SERVER_VERSION] = serverVersion
             preferences[SERVER_CONNECTED] = serverConnected.toString()
+            preferences[SERVER_LEGACY_PLAYBACK] = isLegacyPlaybackApi
         }
     }
 
@@ -427,6 +476,10 @@ class PreferencesManager @Inject constructor(
 
     fun getServerConnected(): Flow<Boolean> = dataStore.data.map { preferences ->
         preferences[SERVER_CONNECTED]?.toBoolean() ?: false
+    }
+
+    fun getServerLegacyPlayback(): Flow<Boolean> = dataStore.data.map { preferences ->
+        preferences[SERVER_LEGACY_PLAYBACK] ?: PreferenceConstants.DEFAULT_SERVER_LEGACY_PLAYBACK
     }
 
     fun getServerConnections(): Flow<List<ServerConnectionMethod>> = dataStore.data.map { preferences ->
@@ -527,6 +580,7 @@ class PreferencesManager @Inject constructor(
             preferences.remove(SERVER_NAME)
             preferences.remove(SERVER_VERSION)
             preferences.remove(SERVER_CONNECTED)
+            preferences.remove(SERVER_LEGACY_PLAYBACK)
             preferences[SERVER_CONNECTIONS] = Json.encodeToString<List<ServerConnectionMethod>>(emptyList())
         }
     }
@@ -541,7 +595,7 @@ class PreferencesManager @Inject constructor(
         }
     }
 
-    
+
 
     suspend fun saveAuthData(
         username: String,
@@ -608,6 +662,15 @@ class PreferencesManager @Inject constructor(
         }
     }
 
+    /**
+     * Initialize PreferencesManager by running any necessary migrations.
+     * Should be called from VoidApplication in background during startup.
+     */
+    suspend fun initialize() {
+        migrateAuthDataIfNeeded()
+        migrateNavigateEpisodesPreference()
+    }
+
     private suspend fun migrateAuthDataIfNeeded() {
         val migrated = dataStore.data.map { it[AUTH_MIGRATED] ?: false }.first()
         if (!migrated) {
@@ -632,7 +695,7 @@ class PreferencesManager @Inject constructor(
         }
     }
 
-    
+
 
     fun getRecentSearches(): Flow<List<String>> = dataStore.data.map { preferences ->
         preferences[RECENT_SEARCHES]?.let { json ->
@@ -652,7 +715,7 @@ class PreferencesManager @Inject constructor(
         }
     }
 
-    
+
 
     fun getAutoPlay(): Flow<Boolean> = dataStore.data.map { preferences ->
         preferences[AUTO_PLAY] ?: PreferenceConstants.DEFAULT_AUTO_PLAY
@@ -706,8 +769,21 @@ class PreferencesManager @Inject constructor(
         preferences[SUBTITLE_LANGUAGE]
     }
 
+    fun getPlayerProgressColor(): Flow<String> = dataStore.data.map { preferences ->
+        preferences[PLAYER_PROGRESS_COLOR] ?: PreferenceConstants.DEFAULT_PLAYER_PROGRESS_COLOR
+    }
+
+    fun getPlayerProgressSeekColor(): Flow<String> = dataStore.data.map { preferences ->
+        preferences[PLAYER_PROGRESS_SEEK_COLOR]
+            ?: PreferenceConstants.DEFAULT_PLAYER_PROGRESS_SEEK_COLOR
+    }
+
     fun getPlayThemeSongs(): Flow<Boolean> = dataStore.data.map { preferences ->
         preferences[PLAY_THEME_SONGS] ?: PreferenceConstants.DEFAULT_PLAY_THEME_SONGS
+    }
+
+    fun getThemeSongFallbackUrl(): Flow<String> = dataStore.data.map { preferences ->
+        preferences[THEME_SONG_FALLBACK_URL] ?: PreferenceConstants.DEFAULT_THEME_SONG_FALLBACK_URL
     }
 
     fun getAutoSkipSegments(): Flow<Boolean> = dataStore.data.map { preferences ->
@@ -720,6 +796,12 @@ class PreferencesManager @Inject constructor(
 
     fun getDecoderMode(): Flow<DecoderMode> = dataStore.data.map { preferences ->
         DecoderMode.fromValue(preferences[DECODER_MODE] ?: PreferenceConstants.DEFAULT_DECODER_MODE)
+    }
+
+    fun getHdrFormatPreference(): Flow<HdrFormatPreference> = dataStore.data.map { preferences ->
+        HdrFormatPreference.fromValue(
+            preferences[HDR_FORMAT_PREFERENCE] ?: PreferenceConstants.DEFAULT_HDR_FORMAT_PREFERENCE
+        )
     }
 
     fun getPreferredVideoCodec(): Flow<PreferredVideoCodec> = dataStore.data.map { preferences ->
@@ -856,9 +938,36 @@ class PreferencesManager @Inject constructor(
         }
     }
 
+    private suspend fun migrateNavigateEpisodesPreference() {
+        val migrated = dataStore.data.map { it[NAVIGATE_EPISODES_MIGRATED] ?: false }.first()
+        if (migrated) return
+        dataStore.edit { prefs ->
+            prefs[NAVIGATE_EPISODES_TO_SEASON] = false
+            prefs[NAVIGATE_EPISODES_MIGRATED] = true
+        }
+    }
+
+    suspend fun savePlayerProgressColor(colorKey: String) {
+        dataStore.edit { preferences ->
+            preferences[PLAYER_PROGRESS_COLOR] = colorKey
+        }
+    }
+
+    suspend fun savePlayerProgressSeekColor(colorKey: String) {
+        dataStore.edit { preferences ->
+            preferences[PLAYER_PROGRESS_SEEK_COLOR] = colorKey
+        }
+    }
+
     suspend fun savePlayThemeSongs(enabled: Boolean) {
         dataStore.edit { preferences ->
             preferences[PLAY_THEME_SONGS] = enabled
+        }
+    }
+
+    suspend fun saveThemeSongFallbackUrl(url: String) {
+        dataStore.edit { preferences ->
+            preferences[THEME_SONG_FALLBACK_URL] = url
         }
     }
 
@@ -877,6 +986,12 @@ class PreferencesManager @Inject constructor(
     suspend fun saveDecoderMode(mode: DecoderMode) {
         dataStore.edit { preferences ->
             preferences[DECODER_MODE] = mode.value
+        }
+    }
+
+    suspend fun saveHdrFormatPreference(preference: HdrFormatPreference) {
+        dataStore.edit { preferences ->
+            preferences[HDR_FORMAT_PREFERENCE] = preference.value
         }
     }
 
@@ -950,7 +1065,7 @@ class PreferencesManager @Inject constructor(
         }
     }
 
-    
+
 
     fun getTotalRxBytes(): Flow<Long> = dataStore.data.map { preferences ->
         preferences[DATA_USAGE_RX] ?: 0L
@@ -1028,7 +1143,7 @@ class PreferencesManager @Inject constructor(
         }
     }
 
-    
+
 
     suspend fun savePlaybackPosition(itemId: String, positionTicks: Long) {
         val key = longPreferencesKey("${PLAYBACK_POSITION_PREFIX}$itemId")
@@ -1060,7 +1175,7 @@ class PreferencesManager @Inject constructor(
         }
     }
 
-    
+
 
     suspend fun savePlaybackPreferences(mediaId: String, prefs: PlaybackPreferences) {
         val key = stringPreferencesKey("${PLAYBACK_PREFERENCES_PREFIX}$mediaId")
@@ -1078,7 +1193,7 @@ class PreferencesManager @Inject constructor(
         }
     }
 
-    
+
 
     suspend fun clearAllPreferences() {
         dataStore.edit { preferences ->
@@ -1092,4 +1207,4 @@ class PreferencesManager @Inject constructor(
         }
     }
 }
-        private val OFFLINE_MODE = booleanPreferencesKey(PreferenceConstants.KEY_OFFLINE_MODE)
+private val OFFLINE_MODE = booleanPreferencesKey(PreferenceConstants.KEY_OFFLINE_MODE)

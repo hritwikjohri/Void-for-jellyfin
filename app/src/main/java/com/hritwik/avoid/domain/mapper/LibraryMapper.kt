@@ -7,6 +7,7 @@ import com.hritwik.avoid.domain.model.library.LibraryType
 import com.hritwik.avoid.domain.model.library.MediaItem
 import com.hritwik.avoid.domain.model.library.Person
 import com.hritwik.avoid.domain.model.library.UserData
+import com.hritwik.avoid.utils.extensions.extractTvdbId
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -54,7 +55,8 @@ class LibraryMapper @Inject constructor(
             seriesName = dto.seriesName,
             seriesId = dto.seriesId,
             parentIndexNumber = dto.parentIndexNumber,
-            indexNumber = dto.indexNumber
+            indexNumber = dto.indexNumber,
+            tvdbId = dto.providerIds.extractTvdbId()
         )
     }
 

@@ -20,19 +20,22 @@ fun DownloadLimitDialog(
 ) {
     val limits = listOf(5_120L, 10_240L, 20_480L, 51_200L)
 
-    SelectionDialog(
+    VoidAlertDialog(
+        visible = true,
         title = stringResource(R.string.download_limit_title),
-        onDismiss = onDismiss
-    ) {
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(calculateRoundedValue(4).sdp)) {
-            items(limits) { limit ->
-                SelectionItem(
-                    title = stringResource(R.string.download_limit_item, limit / 1024),
-                    subtitle = null,
-                    isSelected = currentLimit == limit,
-                    onClick = { onLimitSelected(limit) }
-                )
+        onDismissRequest = onDismiss,
+        dismissText = stringResource(id = R.string.close),
+        onDismissButton = onDismiss,
+        content = {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(calculateRoundedValue(4).sdp)) {
+                items(limits) { limit ->
+                    SelectionItem(
+                        title = stringResource(R.string.download_limit_item, limit / 1024),
+                        isSelected = currentLimit == limit,
+                        onClick = { onLimitSelected(limit) }
+                    )
+                }
             }
         }
-    }
+    )
 }

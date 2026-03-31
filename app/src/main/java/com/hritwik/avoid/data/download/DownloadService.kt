@@ -96,6 +96,12 @@ class DownloadService : LifecycleService() {
         return binder
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // startForegroundService callers must be promoted quickly, even when work is deduplicated.
+        ensureForegroundServiceStarted()
+        return super.onStartCommand(intent, flags, startId)
+    }
+
     private val binder = DownloadBinder()
 
     private val entryPoint by lazy {
@@ -197,6 +203,7 @@ class DownloadService : LifecycleService() {
         }
 
         fun start(context: Context) {
+            getInstance()?.let { return }
             val appContext = context.applicationContext
             val intent = Intent(appContext, DownloadService::class.java)
             ContextCompat.startForegroundService(appContext, intent)
@@ -213,7 +220,6 @@ class DownloadService : LifecycleService() {
             priority: Int = 0,
             mediaSourceId: String? = null
         ) {
-            start(context)
             val instance = getInstance()
             if (instance != null) {
                 instance.queueDownload(mediaItem, serverUrl, accessToken, request, priority, mediaSourceId)
@@ -223,6 +229,7 @@ class DownloadService : LifecycleService() {
                         PendingDownload(mediaItem, serverUrl, accessToken, request, priority, mediaSourceId)
                     )
                 }
+                start(context)
             }
         }
 
@@ -313,8 +320,8 @@ class DownloadService : LifecycleService() {
                 DownloadServiceEntryPoint::class.java
             ).downloadDao()
             return runBlocking {
-                dao.getDownloadByMediaSourceId(id)?.filePath
-                    ?: dao.getDownloadByMediaId(normalizeUuid(id))?.filePath
+                dao.getDownloadByMediaSourceId(id).playableFilePathOrNull()
+                    ?: dao.getDownloadByMediaId(normalizeUuid(id)).playableFilePathOrNull()
             }
         }
 
@@ -466,20 +473,29 @@ class DownloadService : LifecycleService() {
 
         val notification = buildServiceNotification(statuses)
         if (!isForegroundService) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(
-                    SERVICE_NOTIFICATION_ID,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                startForeground(SERVICE_NOTIFICATION_ID, notification)
-            }
-            isForegroundService = true
+            startForegroundInternal(notification)
         } else {
             notificationManager.notify(SERVICE_NOTIFICATION_ID, notification)
         }
+    }
+
+    private fun ensureForegroundServiceStarted() {
+        if (isForegroundService) return
+        startForegroundInternal(buildServiceNotification(emptyList()))
+    }
+
+    private fun startForegroundInternal(notification: Notification) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                SERVICE_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            startForeground(SERVICE_NOTIFICATION_ID, notification)
+        }
+        isForegroundService = true
     }
 
     private fun buildServiceNotification(statuses: Collection<DownloadStatus>): Notification {
@@ -1072,10 +1088,14 @@ class DownloadService : LifecycleService() {
 
     private fun getDownloadedFilePathInternal(id: String): String? {
         val key = resolveId(id) ?: id
-        _downloads.value[key]?.file?.let { if (it.exists()) return it.absolutePath }
+        _downloads.value[key]?.let { info ->
+            if (info.status == DownloadStatus.COMPLETED && info.file.isFile) {
+                return info.file.absolutePath
+            }
+        }
         return runBlocking {
-            downloadDao.getDownloadByMediaSourceId(key)?.filePath
-                ?: downloadDao.getDownloadByMediaId(normalizeUuid(key))?.filePath
+            downloadDao.getDownloadByMediaSourceId(key).playableFilePathOrNull()
+                ?: downloadDao.getDownloadByMediaId(normalizeUuid(key)).playableFilePathOrNull()
         }
     }
 
@@ -1098,6 +1118,13 @@ class DownloadService : LifecycleService() {
     }
 }
 
+private fun DownloadEntity?.playableFilePathOrNull(): String? {
+    val entity = this ?: return null
+    if (entity.status != DownloadService.DownloadStatus.COMPLETED.name) return null
+    val path = entity.filePath?.takeIf { it.isNotBlank() } ?: return null
+    return path.takeIf { File(it).isFile }
+}
+
 private fun deleteFolderImmediate(dir: File?) {
     if (dir == null || !dir.exists()) return
     Files.walkFileTree(dir.toPath(), object : SimpleFileVisitor<Path>() {
@@ -1112,4 +1139,3 @@ private fun deleteFolderImmediate(dir: File?) {
         }
     })
 }
-

@@ -21,7 +21,7 @@ import com.hritwik.avoid.domain.model.auth.ServerConnectionType
 import com.hritwik.avoid.domain.model.auth.User
 import com.hritwik.avoid.domain.repository.AuthRepository
 import com.hritwik.avoid.utils.DataWiper
-import com.hritwik.avoid.utils.helpers.NetworkMonitor
+import com.hritwik.avoid.utils.helpers.SemanticVersion
 import com.hritwik.avoid.utils.helpers.getDeviceName
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.TimeoutCancellationException
@@ -37,7 +37,6 @@ class AuthRepositoryImpl @Inject constructor(
     private val preferencesManager: PreferencesManager,
     private val retrofitBuilder: Retrofit.Builder,
     private val dataWiper: DataWiper,
-    private val networkMonitor: NetworkMonitor,
     private val serverConnectionManager: ServerConnectionManager,
     @ApplicationContext private val context: Context,
     priorityDispatcher: PriorityDispatcher
@@ -46,6 +45,7 @@ class AuthRepositoryImpl @Inject constructor(
     private var currentApiService: JellyfinApiService? = null
     private var currentServerUrl: String? = null
     private val deviceId: String by lazy { getDeviceName(context) }
+    private val minimumPlaybackApiVersion = SemanticVersion.of(10, 11, 0)
 
     private fun createApiService(serverUrl: String): JellyfinApiService {
         val baseUrl = if (!serverUrl.endsWith("/")) "$serverUrl/" else serverUrl
@@ -69,9 +69,6 @@ class AuthRepositoryImpl @Inject constructor(
     }
 
     override suspend fun connectToServer(serverUrl: String): NetworkResult<Server> {
-        if (!networkMonitor.isConnected.value) {
-            return NetworkResult.Error(AppError.Network("No network connection"))
-        }
         val normalizedUrl = serverConnectionManager.normalizeUrl(serverUrl)
         return safeApiCall(normalizedUrl) {
             val apiService = createApiService(normalizedUrl)
@@ -81,11 +78,13 @@ class AuthRepositoryImpl @Inject constructor(
             serverConnectionManager.markRequestSuccess(normalizedUrl)
             val methods = preferencesManager.getServerConnections().first()
             val activeMethod = methods.firstOrNull { it.url.equals(normalizedUrl, ignoreCase = true) }
+            val legacyPlayback = isLegacyPlaybackApi(serverInfo.version)
             val server = Server(
                 url = normalizedUrl,
                 name = serverInfo.serverName ?: "Server",
                 version = serverInfo.version ?: "Unknown",
                 isConnected = true,
+                isLegacyPlaybackApi = legacyPlayback,
                 connectionMethods = methods,
                 activeConnection = activeMethod
             )
@@ -98,9 +97,6 @@ class AuthRepositoryImpl @Inject constructor(
         serverUrl: String,
         credentials: LoginCredentials
     ): NetworkResult<AuthSession> {
-        if (!networkMonitor.isConnected.value) {
-            return NetworkResult.Error(AppError.Network("No network connection"))
-        }
         val normalizedUrl = serverConnectionManager.normalizeUrl(serverUrl)
         return try {
             withTimeout(AUTH_TIMEOUT_MS) {
@@ -121,6 +117,7 @@ class AuthRepositoryImpl @Inject constructor(
                     } catch (_: Exception) {
                         null
                     }
+                    val legacyPlayback = isLegacyPlaybackApi(serverInfo?.version)
 
                     val user = User(
                         id = authResponse.user.id,
@@ -135,6 +132,7 @@ class AuthRepositoryImpl @Inject constructor(
                         name = serverInfo?.serverName ?: "Jellyfin Server",
                         version = serverInfo?.version ?: "Unknown",
                         isConnected = true,
+                        isLegacyPlaybackApi = legacyPlayback,
                         connectionMethods = methods,
                         activeConnection = activeMethod
                     )
@@ -158,11 +156,10 @@ class AuthRepositoryImpl @Inject constructor(
         val storedUrl = preferencesManager.getServerUrl().first()
         val normalizedUrl = storedUrl?.let { serverConnectionManager.normalizeUrl(it) }
 
-        val canCallServer = networkMonitor.isConnected.value && !accessToken.isNullOrBlank() && !normalizedUrl.isNullOrBlank()
+        val canCallServer = !serverConnectionManager.state.value.isOffline &&
+            !accessToken.isNullOrBlank() && !normalizedUrl.isNullOrBlank()
         if (canCallServer) {
-            val refreshed = serverConnectionManager.refreshActiveConnection(messageOnSwitch = null)
-            val baseUrl = normalizedUrl
-            val targetUrl = refreshed?.url ?: baseUrl
+            val targetUrl = serverConnectionManager.state.value.activeMethod?.url ?: normalizedUrl
             val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
             val apiService = getApiServiceFor(targetUrl)
             val callResult = runCatching {
@@ -188,8 +185,8 @@ class AuthRepositoryImpl @Inject constructor(
 
 
     override suspend fun updatePassword(currentPassword: String, newPassword: String): NetworkResult<Unit> {
-        if (!networkMonitor.isConnected.value) {
-            return NetworkResult.Error(AppError.Network("No network connection"))
+        if (serverConnectionManager.state.value.isOffline) {
+            return NetworkResult.Error(AppError.Network("Server unreachable"))
         }
         val accessToken = preferencesManager.getAccessToken().first()
             ?: throw Exception("Access token missing")
@@ -212,9 +209,6 @@ class AuthRepositoryImpl @Inject constructor(
     }
 
     override suspend fun initiateQuickConnect(serverUrl: String): NetworkResult<QuickConnectInitiateResponse> {
-        if (!networkMonitor.isConnected.value) {
-            return NetworkResult.Error(AppError.Network("No network connection"))
-        }
         val normalizedUrl = serverConnectionManager.normalizeUrl(serverUrl)
         return safeApiCall(normalizedUrl) {
             val apiService = getApiServiceFor(normalizedUrl)
@@ -224,8 +218,8 @@ class AuthRepositoryImpl @Inject constructor(
     }
 
     override suspend fun pollQuickConnect(secret: String): NetworkResult<QuickConnectResult> {
-        if (!networkMonitor.isConnected.value) {
-            return NetworkResult.Error(AppError.Network("No network connection"))
+        if (serverConnectionManager.state.value.isOffline) {
+            return NetworkResult.Error(AppError.Network("Server unreachable"))
         }
         val targetUrl = serverConnectionManager.state.value.activeMethod?.url
             ?: currentServerUrl
@@ -239,8 +233,8 @@ class AuthRepositoryImpl @Inject constructor(
     }
 
     override suspend fun authorizeQuickConnect(secret: String): NetworkResult<AuthSession> {
-        if (!networkMonitor.isConnected.value) {
-            return NetworkResult.Error(AppError.Network("No network connection"))
+        if (serverConnectionManager.state.value.isOffline) {
+            return NetworkResult.Error(AppError.Network("Server unreachable"))
         }
 
         val targetUrl = serverConnectionManager.state.value.activeMethod?.url
@@ -258,6 +252,7 @@ class AuthRepositoryImpl @Inject constructor(
             } catch (_: Exception) {
                 null
             }
+            val legacyPlayback = isLegacyPlaybackApi(serverInfo?.version)
             val user = User(
                 id = authResponse.user.id,
                 name = authResponse.user.name,
@@ -271,6 +266,7 @@ class AuthRepositoryImpl @Inject constructor(
                 name = serverInfo?.serverName ?: "Server",
                 version = serverInfo?.version ?: "Unknown",
                 isConnected = true,
+                isLegacyPlaybackApi = legacyPlayback,
                 connectionMethods = methods,
                 activeConnection = activeMethod
             )
@@ -315,7 +311,8 @@ class AuthRepositoryImpl @Inject constructor(
             )
             preferencesManager.saveServerDetails(
                 serverVersion = session.server.version,
-                serverConnected = session.server.isConnected
+                serverConnected = session.server.isConnected,
+                isLegacyPlaybackApi = session.server.isLegacyPlaybackApi
             )
             preferencesManager.saveAuthData(
                 username = session.userId.name,
@@ -332,6 +329,7 @@ class AuthRepositoryImpl @Inject constructor(
             val serverName = preferencesManager.getServerName().first()
             val serverVersion = preferencesManager.getServerVersion().first()
             val serverConnected = preferencesManager.getServerConnected().first()
+            val legacyPlayback = preferencesManager.getServerLegacyPlayback().first()
             val username = preferencesManager.getUsername().first()
             val accessToken = preferencesManager.getAccessToken().first()
             val userId = preferencesManager.getUserId().first()
@@ -354,6 +352,7 @@ class AuthRepositoryImpl @Inject constructor(
                     name = serverName ?: "Server",
                     version = serverVersion ?: "Unknown",
                     isConnected = serverConnected,
+                    isLegacyPlaybackApi = legacyPlayback,
                     connectionMethods = methods,
                     activeConnection = activeMethod
                 )
@@ -411,6 +410,7 @@ class AuthRepositoryImpl @Inject constructor(
             val serverUrl = preferencesManager.getServerUrl().first()
             val serverName = preferencesManager.getServerName().first()
             val serverVersion = preferencesManager.getServerVersion().first()
+            val legacyPlayback = preferencesManager.getServerLegacyPlayback().first()
             val methods = preferencesManager.getServerConnections().first()
 
             if (serverUrl != null) {
@@ -421,6 +421,7 @@ class AuthRepositoryImpl @Inject constructor(
                     name = serverName ?: "Server",
                     version = serverVersion ?: "Unknown",
                     isConnected = false,
+                    isLegacyPlaybackApi = legacyPlayback,
                     connectionMethods = methods,
                     activeConnection = activeMethod
                 )
@@ -443,8 +444,8 @@ class AuthRepositoryImpl @Inject constructor(
             return NetworkResult.Success(false)
         }
 
-        if (!networkMonitor.isConnected.value) {
-            return NetworkResult.Error(AppError.Network("No network connection"))
+        if (serverConnectionManager.state.value.isOffline) {
+            return NetworkResult.Error(AppError.Network("Server unreachable"))
         }
 
         val connectionState = serverConnectionManager.state.value
@@ -467,6 +468,11 @@ class AuthRepositoryImpl @Inject constructor(
         val apiService = getApiServiceFor(serverUrl)
         val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
         apiService.logout(authHeader)
+    }
+
+    private fun isLegacyPlaybackApi(version: String?): Boolean {
+        val parsedVersion = SemanticVersion.parse(version)
+        return parsedVersion?.let { it < minimumPlaybackApiVersion } ?: false
     }
 
     companion object {

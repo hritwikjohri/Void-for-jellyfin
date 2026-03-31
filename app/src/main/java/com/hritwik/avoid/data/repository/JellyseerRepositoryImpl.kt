@@ -87,7 +87,7 @@ class JellyseerRepositoryImpl @Inject constructor(
         if (!config.isConfigured) {
             return Result.failure(
                 IllegalStateException(
-                    "Configure Jellyseerr with a base URL and sign in or provide an API key"
+                    "Configure Jellyseerr with a base URL and sign in"
                 )
             )
         }
@@ -111,7 +111,6 @@ class JellyseerRepositoryImpl @Inject constructor(
 
         return runCatching {
             service.search(
-                apiKey = config.apiKeyForRequest(),
                 cookie = config.cookieForRequest(),
                 query = query,
                 page = page.takeIf { it > 0 },
@@ -137,14 +136,12 @@ class JellyseerRepositoryImpl @Inject constructor(
         return runCatching {
             when (type) {
                 JellyseerMediaType.MOVIE -> service.getMovieDetails(
-                    apiKey = config.apiKeyForRequest(),
                     cookie = config.cookieForRequest(),
                     movieId = id,
                     language = language
                 ).toDomain()
 
                 JellyseerMediaType.TV -> service.getTvDetails(
-                    apiKey = config.apiKeyForRequest(),
                     cookie = config.cookieForRequest(),
                     tvId = id,
                     language = language
@@ -177,7 +174,6 @@ class JellyseerRepositoryImpl @Inject constructor(
 
         return runCatching {
             service.createRequest(
-                apiKey = config.apiKeyForRequest(),
                 cookie = config.cookieForRequest(),
                 body = body
             ).toDomain()
@@ -388,9 +384,6 @@ class JellyseerRepositoryImpl @Inject constructor(
             }
             .firstOrNull()
     }
-
-    private fun JellyseerConfig.apiKeyForRequest(): String? =
-        apiKey.takeIf { it.isNotBlank() && sessionCookie.isBlank() }
 
     private fun JellyseerConfig.cookieForRequest(): String? =
         sessionCookie.takeIf { it.isNotBlank() }

@@ -122,7 +122,7 @@ fun ConnectionDashboardScreen(
                 .clearFocusOnTap()
         ) {
             ScreenHeader(
-                title = "Connection Dashboard",
+                title = "Connection Settings",
                 onBackClick = onBackClick,
                 showBackButton = true
             )

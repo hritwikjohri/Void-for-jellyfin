@@ -11,6 +11,7 @@ import com.hritwik.avoid.domain.model.media.PlaybackOptions
 import com.hritwik.avoid.domain.model.media.VideoQuality
 import com.hritwik.avoid.domain.model.playback.Segment
 import com.hritwik.avoid.domain.model.playback.PlaybackTranscodeOption
+import java.util.Locale
 import kotlin.text.uppercase
 
 @OptIn(UnstableApi::class)
@@ -35,8 +36,10 @@ data class VideoPlaybackState(
     val preferredSubtitleLanguage: String? = null,
     val preferredVideoQuality: VideoQuality? = null,
     val videoUrl: String? = null,
+    val mpvVideoUrl: String? = null,
     val exoMediaItem: ExoMediaItem? = null,
     val cacheDataSourceFactory: CacheDataSource.Factory? = null,
+    val playSessionId: String? = null,
     val mediaSourceId: String? = null,
     val audioStreamIndex: Int? = null,
     val subtitleStreamIndex: Int? = null,
@@ -75,13 +78,17 @@ data class VideoPlaybackState(
                 append(source.versionInfo)
                 source.bitrate?.let {
                     if (isNotEmpty()) append(" • ")
-                    append("${it / 1000} kbps")
+                    append(String.format(Locale.US, "%.1f Mbps", it / 1_000_000f))
                 }
             }
         } ?: "Auto"
 
     val currentVideoQualityText: String
-        get() = playbackOptions.currentVideoQuality?.displayName ?: "Auto"
+        get() = playbackOptions.selectedVideoStream?.let { stream ->
+            stream.videoQuality?.let { quality ->
+                "${quality.height}p ${stream.dynamicRangeLabel}"
+            }
+        } ?: "Auto"
 
     val currentAudioText: String
         get() = playbackOptions.selectedAudioStream?.let { stream ->

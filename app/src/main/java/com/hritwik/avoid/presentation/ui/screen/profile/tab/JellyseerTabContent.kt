@@ -19,7 +19,6 @@ import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -64,7 +63,6 @@ fun JellyseerTabContent(
     config: JellyseerConfig,
     authState: UserDataViewModel.JellyseerAuthUiState,
     onBaseUrlChange: (String) -> Unit,
-    onApiKeyChange: (String) -> Unit,
     onLogin: (String, String, String) -> Unit,
     onLogout: () -> Unit,
     onClearFeedback: () -> Unit,
@@ -74,19 +72,12 @@ fun JellyseerTabContent(
     var baseUrl by remember { mutableStateOf(config.baseUrl) }
     var username by remember { mutableStateOf(config.userDisplayName.orEmpty()) }
     var password by remember { mutableStateOf("") }
-    var apiKey by remember { mutableStateOf(config.apiKey) }
     var showPassword by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
 
     LaunchedEffect(config.baseUrl) {
         if (config.baseUrl != baseUrl) {
             baseUrl = config.baseUrl
-        }
-    }
-
-    LaunchedEffect(config.apiKey) {
-        if (config.apiKey != apiKey) {
-            apiKey = config.apiKey
         }
     }
 
@@ -125,8 +116,6 @@ fun JellyseerTabContent(
                     ?: "current user"
             )
         }
-
-        config.apiKey.isNotBlank() -> "API key configured. Requests will use the API key."
 
         else -> "Provide a base URL and sign in with your Jellyfin credentials to enable Jellyseer features."
     }
@@ -360,66 +349,6 @@ fun JellyseerTabContent(
                             )
                         }
                     }
-                }
-            }
-        }
-
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = calculateRoundedValue(0).sdp),
-                shape = RoundedCornerShape(calculateRoundedValue(16).sdp),
-                colors = CardDefaults.cardColors(
-                    containerColor = Color.Transparent
-                ),
-                border = BorderStroke(
-                    width = calculateRoundedValue(1).sdp,
-                    color = Color.White.copy(alpha = 0.2f)
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(calculateRoundedValue(16).sdp),
-                    verticalArrangement = Arrangement.spacedBy(calculateRoundedValue(12).sdp)
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(calculateRoundedValue(4).sdp)) {
-                        Text(
-                            text = "Fallback API Key",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = PrimaryText
-                        )
-                        Text(
-                            text = "Optional. Used when not signed in.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    OutlinedTextField(
-                        value = apiKey,
-                        onValueChange = {
-                            apiKey = it
-                            onApiKeyChange(it)
-                        },
-                        label = { Text("API Key") },
-                        leadingIcon = { Icon(imageVector = Icons.Outlined.Key, contentDescription = null) },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(
-                            onDone = { focusManager.clearFocus() }
-                        ),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(calculateRoundedValue(28).sdp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = Color.White.copy(alpha = 0.6f),
-                            focusedLabelColor = MaterialTheme.colorScheme.primary,
-                            unfocusedLabelColor = Color.White.copy(alpha = 0.8f),
-                            cursorColor = MaterialTheme.colorScheme.primary,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        )
-                    )
                 }
             }
         }

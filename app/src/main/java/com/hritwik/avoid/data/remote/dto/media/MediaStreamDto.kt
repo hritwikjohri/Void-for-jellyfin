@@ -11,6 +11,8 @@ data class MediaStreamDto(
     val type: String,
     @SerialName("Codec")
     val codec: String? = null,
+    @SerialName("Profile")
+    val profile: String? = null,
     @SerialName("Language")
     val language: String? = null,
     @SerialName("DisplayLanguage")
@@ -19,6 +21,10 @@ data class MediaStreamDto(
     val title: String? = null,
     @SerialName("DisplayTitle")
     val displayTitle: String? = null,
+    @SerialName("VideoRange")
+    val videoRange: String? = null,
+    @SerialName("VideoRangeType")
+    val videoRangeType: String? = null,
     @SerialName("IsDefault")
     val isDefault: Boolean = false,
     @SerialName("IsForced")

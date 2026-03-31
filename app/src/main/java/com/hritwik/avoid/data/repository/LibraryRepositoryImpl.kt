@@ -1,76 +1,78 @@
 package com.hritwik.avoid.data.repository
 
 import android.content.Context
-import android.os.Build
 import android.provider.Settings.Secure.ANDROID_ID
 import android.provider.Settings.System.getString
-import java.util.Locale
-import androidx.annotation.RequiresApi
 import com.hritwik.avoid.data.common.BaseRepository
 import com.hritwik.avoid.data.common.NetworkResult
-import com.hritwik.avoid.data.common.NetworkResult.*
+import com.hritwik.avoid.data.common.NetworkResult.Success
 import com.hritwik.avoid.data.connection.ServerConnectionManager
 import com.hritwik.avoid.data.local.PreferencesManager
+import com.hritwik.avoid.data.local.database.dao.DownloadDao
 import com.hritwik.avoid.data.local.database.dao.LibraryDao
 import com.hritwik.avoid.data.local.database.dao.MediaItemDao
 import com.hritwik.avoid.data.local.database.dao.PendingActionDao
-import com.hritwik.avoid.data.local.database.dao.DownloadDao
 import com.hritwik.avoid.data.local.database.entities.LibraryEntity
 import com.hritwik.avoid.data.local.database.entities.MediaItemEntity
 import com.hritwik.avoid.data.local.database.entities.PendingActionEntity
+import com.hritwik.avoid.data.network.PriorityDispatcher
 import com.hritwik.avoid.data.remote.JellyfinApiService
+import com.hritwik.avoid.data.remote.TmdbApiService
 import com.hritwik.avoid.data.remote.dto.library.BaseItemDto
 import com.hritwik.avoid.data.remote.dto.library.UserDataDto
-import com.hritwik.avoid.domain.mapper.PlaybackMapper
+import com.hritwik.avoid.data.remote.dto.playback.PlaybackCodecProfileDto
+import com.hritwik.avoid.data.remote.dto.playback.PlaybackDeviceProfileDto
+import com.hritwik.avoid.data.remote.dto.playback.PlaybackInfoRequestDto
 import com.hritwik.avoid.data.remote.dto.playback.PlaybackProgressRequest
 import com.hritwik.avoid.data.remote.dto.playback.PlaybackStartRequest
 import com.hritwik.avoid.data.remote.dto.playback.PlaybackStopRequest
-import com.hritwik.avoid.data.remote.websocket.PlaybackEvent
-import com.hritwik.avoid.data.remote.websocket.PlaybackWebSocketClient
-import com.hritwik.avoid.data.repository.ContinueWatchingStore
-import com.hritwik.avoid.data.repository.NextUpStore
-import com.hritwik.avoid.data.network.PriorityDispatcher
+import com.hritwik.avoid.data.remote.dto.playback.PlaybackSubtitleProfileDto
+import com.hritwik.avoid.data.remote.dto.playback.PlaybackTranscodingProfileDto
+import com.hritwik.avoid.domain.error.AppError
+import com.hritwik.avoid.domain.mapper.PlaybackMapper
 import com.hritwik.avoid.domain.model.auth.User
+import com.hritwik.avoid.domain.model.library.HomeScreenData
 import com.hritwik.avoid.domain.model.library.Library
-import com.hritwik.avoid.domain.model.library.LibraryType
 import com.hritwik.avoid.domain.model.library.LibrarySortDirection
+import com.hritwik.avoid.domain.model.library.LibraryType
 import com.hritwik.avoid.domain.model.library.MediaItem
 import com.hritwik.avoid.domain.model.library.PendingAction
 import com.hritwik.avoid.domain.model.library.Person
 import com.hritwik.avoid.domain.model.library.UserData
-import com.hritwik.avoid.domain.model.library.HomeScreenData
-import com.hritwik.avoid.domain.repository.RelatedResources
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.StateFlow
+import com.hritwik.avoid.domain.model.playback.PlaybackStreamInfo
+import com.hritwik.avoid.domain.model.playback.Segment
+import com.hritwik.avoid.domain.model.playback.TranscodeRequestParameters
 import com.hritwik.avoid.domain.repository.LibraryRepository
+import com.hritwik.avoid.domain.repository.RelatedResources
+import com.hritwik.avoid.utils.constants.ApiConstants
+import com.hritwik.avoid.utils.constants.AppConstants.DEFAULT_NEXT_UP_LIMIT
+import com.hritwik.avoid.utils.constants.AppConstants.THRESHOLD
+import com.hritwik.avoid.utils.constants.PreferenceConstants
+import com.hritwik.avoid.utils.extensions.extractTvdbId
+import com.hritwik.avoid.utils.helpers.normalizeUuid
 import dagger.hilt.android.qualifiers.ApplicationContext
-import com.hritwik.avoid.di.WebSocketScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import java.text.Normalizer
 import retrofit2.Retrofit
+import java.io.File
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
-import com.hritwik.avoid.domain.error.AppError
-import com.hritwik.avoid.domain.model.playback.Segment
-import com.hritwik.avoid.utils.constants.ApiConstants
-import com.hritwik.avoid.utils.helpers.NetworkMonitor
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.decodeFromString
-import java.io.File
-import com.hritwik.avoid.utils.helpers.normalizeUuid
-
-private const val THRESHOLD = 10_000_000L
-private const val DEFAULT_NEXT_UP_LIMIT = 20
 
 @Singleton
-@RequiresApi(Build.VERSION_CODES.O)
 class LibraryRepositoryImpl @Inject constructor(
     private val retrofitBuilder: Retrofit.Builder,
     private val preferencesManager: PreferencesManager,
@@ -79,12 +81,9 @@ class LibraryRepositoryImpl @Inject constructor(
     private val mediaItemDao: MediaItemDao,
     private val pendingActionDao: PendingActionDao,
     private val downloadDao: DownloadDao,
-    private val networkMonitor: NetworkMonitor,
-    @ApplicationContext private val context: Context,
-    private val webSocketClient: PlaybackWebSocketClient,
+    @param:ApplicationContext private val context: Context,
     private val continueWatchingStore: ContinueWatchingStore,
     private val nextUpStore: NextUpStore,
-    @WebSocketScope private val wsScope: CoroutineScope,
     private val serverConnectionManager: ServerConnectionManager,
     priorityDispatcher: PriorityDispatcher
 ) : BaseRepository(priorityDispatcher, serverConnectionManager), LibraryRepository {
@@ -101,8 +100,6 @@ class LibraryRepositoryImpl @Inject constructor(
     override val nextUpItemsFlow: StateFlow<List<MediaItem>>
         get() = nextUpStore.items
 
-    private var wsJob: Job? = null
-
     private fun createApiService(serverUrl: String): JellyfinApiService {
         val baseUrl = if (!serverUrl.endsWith("/")) "$serverUrl/" else serverUrl
         return retrofitBuilder
@@ -111,32 +108,39 @@ class LibraryRepositoryImpl @Inject constructor(
             .create(JellyfinApiService::class.java)
     }
 
+    private var tmdbApiService: TmdbApiService? = null
+
+    private fun getTmdbApiService(): TmdbApiService {
+        if (tmdbApiService == null) {
+            tmdbApiService = retrofitBuilder
+                .baseUrl("https://api.themoviedb.org/3/")
+                .build()
+                .create(TmdbApiService::class.java)
+        }
+        return tmdbApiService!!
+    }
+
+    override suspend fun getUserLibrariesFromCache(userId: String): List<Library> {
+        return libraryDao.getAllLibraries(userId).first().map { it.toDomain() }
+    }
+
     override suspend fun getUserLibraries(
         userId: String,
         accessToken: String
     ): NetworkResult<List<Library>> {
-        val cached = libraryDao.getAllLibraries(userId).first()
-        if (!networkMonitor.isConnected.value) {
-            return if (cached.isNotEmpty()) {
-                NetworkResult.Success(cached.map { it.toDomain() })
-            } else {
-                NetworkResult.Error<List<Library>>(AppError.Network("No network connection"))
-            }
-        }
-
-        if (cached.isNotEmpty()) {
-            return NetworkResult.Success(cached.map { it.toDomain() })
+        if (serverConnectionManager.state.value.isOffline) {
+            return NetworkResult.Error(AppError.Network("Server unreachable"))
         }
 
         val serverUrl = getServerUrl()
         return safeApiCall(serverUrl) {
             val apiService = createApiService(serverUrl)
 
-            val authHeader = JellyfinApiService.Companion.createAuthHeader(deviceId, token = accessToken)
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
             val response = apiService.getUserLibraries(userId, authHeader)
 
             val libraries = response.items.map { dto ->
-                mapToLibrary(dto, serverUrl)
+                mapToLibrary(dto)
             }
 
             libraryDao.insertLibraries(libraries.map { it.toEntity(userId) })
@@ -156,27 +160,19 @@ class LibraryRepositoryImpl @Inject constructor(
         sortOrder: LibrarySortDirection,
         genre: String?
     ): NetworkResult<List<MediaItem>> {
-        val cached = mediaItemDao.getMediaItemsByLibrary(libraryId, userId).first()
-        val isDefaultSort =
-            sortBy == listOf("SortName") && sortOrder == LibrarySortDirection.ASCENDING && genre.isNullOrEmpty()
+        // No DB caching for library items - always fetch from network (like TV version)
+        // This prevents stale data and ANR issues
+        // DB is only used for user actions (favorites, resume, etc.)
 
-        if (!networkMonitor.isConnected.value) {
-            return if (cached.isNotEmpty()) {
-                NetworkResult.Success(cached.map { it.toDomain() })
-            } else {
-                NetworkResult.Error<List<MediaItem>>(AppError.Network("No network connection"))
-            }
-        }
-
-        if (isDefaultSort && !forceRefresh && cached.isNotEmpty() && startIndex == 0) {
-            return NetworkResult.Success(cached.map { it.toDomain() })
+        if (serverConnectionManager.state.value.isOffline) {
+            return NetworkResult.Error(AppError.Network("Server unreachable"))
         }
 
         val serverUrl = getServerUrl()
         return safeApiCall(serverUrl) {
             val apiService = createApiService(serverUrl)
 
-            val authHeader = JellyfinApiService.Companion.createAuthHeader(deviceId, token = accessToken)
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
             val response = apiService.getLibraryItems(
                 userId = userId,
                 parentId = libraryId,
@@ -188,16 +184,9 @@ class LibraryRepositoryImpl @Inject constructor(
                 authorization = authHeader
             )
 
-            val items = response.items.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+            response.items.map { dto ->
+                mapToMediaItem(dto)
             }
-
-            if (isDefaultSort && startIndex == 0) {
-                mediaItemDao.deleteMediaItemsByLibrary(libraryId, userId)
-            }
-            mediaItemDao.insertMediaItems(items.map { it.toEntity(libraryId, userId) })
-
-            items
         }
     }
 
@@ -238,13 +227,12 @@ class LibraryRepositoryImpl @Inject constructor(
             val apiService = createApiService(serverUrl)
             val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
             val errors = mutableListOf<String>()
-            val cachedLibraries = libraryDao.getAllLibraries(userId).first()
 
             val resultPair = coroutineScope {
                 val librariesDeferred = async {
                     try {
                         val response = apiService.getUserLibraries(userId, authHeader)
-                        val libraries = response.items.map { dto -> mapToLibrary(dto, serverUrl) }
+                        val libraries = response.items.map { dto -> mapToLibrary(dto) }
                         libraryDao.insertLibraries(libraries.map { it.toEntity(userId) })
                         Result.success(libraries)
                     } catch (t: Throwable) {
@@ -254,7 +242,7 @@ class LibraryRepositoryImpl @Inject constructor(
                 val latestItemsDeferred = async {
                     try {
                         val items = apiService.getLatestItems(userId, limit, authorization = authHeader)
-                            .map { dto -> mapToMediaItem(dto, serverUrl) }
+                            .map { dto -> mapToMediaItem(dto) }
                         Result.success(items)
                     } catch (t: Throwable) {
                         Result.failure(t)
@@ -263,8 +251,7 @@ class LibraryRepositoryImpl @Inject constructor(
                 val resumeItemsDeferred = async {
                     try {
                         val items = apiService.getResumeItems(userId, limit, authorization = authHeader)
-                            .items.map { dto -> mapToMediaItem(dto, serverUrl) }
-                        continueWatchingStore.setInitial(items)
+                            .items.map { dto -> mapToMediaItem(dto) }
                         Result.success(items)
                     } catch (t: Throwable) {
                         Result.failure(t)
@@ -277,8 +264,7 @@ class LibraryRepositoryImpl @Inject constructor(
                             limit = limit,
                             authorization = authHeader
                         ).items.filter { it.type == "Episode" }
-                            .map { dto -> mapToMediaItem(dto, serverUrl) }
-                        nextUpStore.setInitial(items, limit)
+                            .map { dto -> mapToMediaItem(dto) }
                         Result.success(items)
                     } catch (t: Throwable) {
                         Result.failure(t)
@@ -294,111 +280,14 @@ class LibraryRepositoryImpl @Inject constructor(
                             limit = limit,
                             sortBy = "DateCreated",
                             sortOrder = "Descending",
-                            enableImageTypes = "Primary,Backdrop",
+                            enableImageTypes = ApiConstants.IMAGE_TYPE_PRIMARY,
                             authorization = authHeader
-                        ).items.map { dto -> mapToMediaItem(dto, serverUrl) }
+                        ).items.map { dto -> mapToMediaItem(dto) }
                         Result.success(items)
                     } catch (t: Throwable) {
                         Result.failure(t)
                     }
                 }
-                val latestMoviesDeferred = async {
-                    try {
-                        val items = apiService.getItemsByFilters(
-                            userId = userId,
-                            includeItemTypes = "Movie",
-                            recursive = true,
-                            startIndex = 0,
-                            limit = limit,
-                            sortBy = "DateCreated",
-                            sortOrder = "Descending",
-                            enableImageTypes = "Primary,Backdrop",
-                            authorization = authHeader
-                        ).items.map { dto -> mapToMediaItem(dto, serverUrl) }
-                        Result.success(items)
-                    } catch (t: Throwable) {
-                        Result.failure(t)
-                    }
-                }
-                val recentlyReleasedMoviesDeferred = async {
-                    try {
-                        val minPremiereDate = LocalDate.now().minusMonths(6).format(movieDateFormatter)
-                        val items = apiService.getItemsByFilters(
-                            userId = userId,
-                            includeItemTypes = "Movie",
-                            recursive = true,
-                            startIndex = 0,
-                            limit = limit,
-                            sortBy = "PremiereDate",
-                            sortOrder = "Descending",
-                            minPremiereDate = minPremiereDate,
-                            enableImageTypes = "Primary,Backdrop",
-                            authorization = authHeader
-                        ).items.map { dto -> mapToMediaItem(dto, serverUrl) }
-                        Result.success(items)
-                    } catch (t: Throwable) {
-                        Result.failure(t)
-                    }
-                }
-                val recentlyReleasedShowsDeferred = async {
-                    try {
-                        val minPremiereDate = LocalDate.now().minusMonths(3).format(movieDateFormatter)
-                        val items = apiService.getItemsByFilters(
-                            userId = userId,
-                            includeItemTypes = "Series",
-                            recursive = true,
-                            startIndex = 0,
-                            limit = limit,
-                            sortBy = "PremiereDate",
-                            sortOrder = "Descending",
-                            minPremiereDate = minPremiereDate,
-                            enableImageTypes = "Primary,Backdrop",
-                            authorization = authHeader
-                        ).items.map { dto -> mapToMediaItem(dto, serverUrl) }
-                        Result.success(items)
-                    } catch (t: Throwable) {
-                        Result.failure(t)
-                    }
-                }
-                val recommendedItemsDeferred = async {
-                    try {
-                        val items = apiService.getItemsByFilters(
-                            userId = userId,
-                            includeItemTypes = "Movie,Series",
-                            recursive = true,
-                            startIndex = 0,
-                            limit = limit,
-                            sortBy = "CommunityRating",
-                            sortOrder = "Descending",
-                            isPlayed = false,
-                            minCommunityRating = 7.0,
-                            enableImageTypes = "Primary,Backdrop",
-                            authorization = authHeader
-                        ).items.map { dto -> mapToMediaItem(dto, serverUrl) }
-                        Result.success(items)
-                    } catch (t: Throwable) {
-                        Result.failure(t)
-                    }
-                }
-                val collectionsDeferred = async {
-                    try {
-                        val items = apiService.getItemsByFilters(
-                            userId = userId,
-                            includeItemTypes = "BoxSet",
-                            recursive = true,
-                            startIndex = 0,
-                            limit = limit,
-                            sortBy = "SortName",
-                            sortOrder = "Ascending",
-                            enableImageTypes = "Primary,Backdrop",
-                            authorization = authHeader
-                        ).items.map { dto -> mapToMediaItem(dto, serverUrl) }
-                        Result.success(items)
-                    } catch (t: Throwable) {
-                        Result.failure(t)
-                    }
-                }
-
                 val homeData = HomeScreenData(
                     libraries = emptyList(),
                     latestItems = latestItemsDeferred.await().getOrElse { throwable ->
@@ -407,36 +296,23 @@ class LibraryRepositoryImpl @Inject constructor(
                     },
                     resumeItems = resumeItemsDeferred.await().getOrElse { throwable ->
                         errors += "Failed to load resume items: ${throwable.message ?: "Unknown error"}"
-                        continueWatchingStore.items.value
+                        emptyList()
                     },
                     nextUpItems = nextUpItemsDeferred.await().getOrElse { throwable ->
                         errors += "Failed to load next up items: ${throwable.message ?: "Unknown error"}"
-                        nextUpStore.snapshot(limit)
+                        emptyList()
                     },
                     latestEpisodes = latestEpisodesDeferred.await().getOrElse { throwable ->
                         errors += "Failed to load latest episodes: ${throwable.message ?: "Unknown error"}"
                         emptyList()
                     },
-                    latestMovies = latestMoviesDeferred.await().getOrElse { throwable ->
-                        errors += "Failed to load latest movies: ${throwable.message ?: "Unknown error"}"
-                        emptyList()
-                    },
-                    recentlyReleasedMovies = recentlyReleasedMoviesDeferred.await().getOrElse { throwable ->
-                        errors += "Failed to load recently released movies: ${throwable.message ?: "Unknown error"}"
-                        emptyList()
-                    },
-                    recentlyReleasedShows = recentlyReleasedShowsDeferred.await().getOrElse { throwable ->
-                        errors += "Failed to load recently released shows: ${throwable.message ?: "Unknown error"}"
-                        emptyList()
-                    },
-                    recommendedItems = recommendedItemsDeferred.await().getOrElse { throwable ->
-                        errors += "Failed to load recommended items: ${throwable.message ?: "Unknown error"}"
-                        emptyList()
-                    },
-                    collections = collectionsDeferred.await().getOrElse { throwable ->
-                        errors += "Failed to load collections: ${throwable.message ?: "Unknown error"}"
-                        emptyList()
-                    },
+                    latestMovies = emptyList(),
+                    movies = emptyList(),
+                    shows = emptyList(),
+                    recentlyReleasedMovies = emptyList(),
+                    recentlyReleasedShows = emptyList(),
+                    recommendedItems = emptyList(),
+                    collections = emptyList(),
                     errors = emptyList()
                 )
 
@@ -448,7 +324,7 @@ class LibraryRepositoryImpl @Inject constructor(
                 librariesResult.getOrThrow()
             } else {
                 errors += "Failed to load libraries: ${librariesResult.exceptionOrNull()?.message ?: "Unknown error"}"
-                cachedLibraries.map { it.toDomain() }
+                emptyList()
             }
 
             val aggregatedErrors = errors.toList()
@@ -468,11 +344,35 @@ class LibraryRepositoryImpl @Inject constructor(
         return safeApiCall(serverUrl) {
             val apiService = createApiService(serverUrl)
 
-            val authHeader = JellyfinApiService.Companion.createAuthHeader(deviceId, token = accessToken)
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
             val response = apiService.getLatestItems(userId, limit, authorization = authHeader)
 
             response.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
+            }
+        }
+    }
+
+    override suspend fun getLatestItemsByLibrary(
+        userId: String,
+        libraryId: String,
+        accessToken: String,
+        limit: Int
+    ): NetworkResult<List<MediaItem>> {
+        val serverUrl = getServerUrl()
+        return safeApiCall(serverUrl) {
+            val apiService = createApiService(serverUrl)
+
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
+            val response = apiService.getLatestItems(
+                userId = userId,
+                limit = limit,
+                parentId = libraryId,
+                authorization = authHeader
+            )
+
+            response.map { dto ->
+                mapToMediaItem(dto)
             }
         }
     }
@@ -480,20 +380,28 @@ class LibraryRepositoryImpl @Inject constructor(
     override suspend fun getResumeItems(
         userId: String,
         accessToken: String,
-        limit: Int
+        limit: Int,
+        mediaTypes: String?,
+        includeItemTypes: String?
     ): NetworkResult<List<MediaItem>> {
         val serverUrl = getServerUrl()
         val result = safeApiCall(serverUrl) {
             val apiService = createApiService(serverUrl)
 
-            val authHeader = JellyfinApiService.Companion.createAuthHeader(deviceId, token = accessToken)
-            val response = apiService.getResumeItems(userId, limit, authorization = authHeader)
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
+            val response = apiService.getResumeItems(
+                userId = userId,
+                limit = limit,
+                mediaTypes = mediaTypes,
+                includeItemTypes = includeItemTypes,
+                authorization = authHeader
+            )
 
             response.items.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
             }
         }
-        if (result is NetworkResult.Success) {
+        if (result is Success) {
             continueWatchingStore.setInitial(result.data)
         }
         return result
@@ -508,7 +416,7 @@ class LibraryRepositoryImpl @Inject constructor(
         return safeApiCall(serverUrl) {
             val apiService = createApiService(serverUrl)
 
-            val authHeader = JellyfinApiService.Companion.createAuthHeader(deviceId, token = accessToken)
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
             val response = apiService.getItemsByFilters(
                 userId = userId,
                 includeItemTypes = "Episode",
@@ -517,12 +425,12 @@ class LibraryRepositoryImpl @Inject constructor(
                 limit = limit,
                 sortBy = "DateCreated",
                 sortOrder = "Descending",
-                enableImageTypes = "Primary,Backdrop",
+                enableImageTypes = ApiConstants.IMAGE_TYPE_PRIMARY,
                 authorization = authHeader
             )
 
             response.items.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
             }
         }
     }
@@ -536,7 +444,7 @@ class LibraryRepositoryImpl @Inject constructor(
         return safeApiCall(serverUrl) {
             val apiService = createApiService(serverUrl)
 
-            val authHeader = JellyfinApiService.Companion.createAuthHeader(deviceId, token = accessToken)
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
             val response = apiService.getItemsByFilters(
                 userId = userId,
                 includeItemTypes = "Movie",
@@ -545,17 +453,72 @@ class LibraryRepositoryImpl @Inject constructor(
                 limit = limit,
                 sortBy = "DateCreated",
                 sortOrder = "Descending",
-                enableImageTypes = "Primary,Backdrop",
+                enableImageTypes = ApiConstants.IMAGE_TYPE_PRIMARY,
                 authorization = authHeader
             )
 
             response.items.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
             }
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
+    override suspend fun getMovies(
+        userId: String,
+        accessToken: String,
+        limit: Int
+    ): NetworkResult<List<MediaItem>> {
+        val serverUrl = getServerUrl()
+        return safeApiCall(serverUrl) {
+            val apiService = createApiService(serverUrl)
+
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
+            val response = apiService.getItemsByFilters(
+                userId = userId,
+                includeItemTypes = "Movie",
+                recursive = true,
+                startIndex = 0,
+                limit = limit,
+                sortBy = "SortName",
+                sortOrder = "Ascending",
+                enableImageTypes = ApiConstants.IMAGE_TYPE_PRIMARY,
+                authorization = authHeader
+            )
+
+            response.items.map { dto ->
+                mapToMediaItem(dto)
+            }
+        }
+    }
+
+    override suspend fun getShows(
+        userId: String,
+        accessToken: String,
+        limit: Int
+    ): NetworkResult<List<MediaItem>> {
+        val serverUrl = getServerUrl()
+        return safeApiCall(serverUrl) {
+            val apiService = createApiService(serverUrl)
+
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
+            val response = apiService.getItemsByFilters(
+                userId = userId,
+                includeItemTypes = "Series",
+                recursive = true,
+                startIndex = 0,
+                limit = limit,
+                sortBy = "SortName",
+                sortOrder = "Ascending",
+                enableImageTypes = ApiConstants.IMAGE_TYPE_PRIMARY,
+                authorization = authHeader
+            )
+
+            response.items.map { dto ->
+                mapToMediaItem(dto)
+            }
+        }
+    }
+
     override suspend fun getRecentlyReleasedMovies(
         userId: String,
         accessToken: String,
@@ -566,7 +529,7 @@ class LibraryRepositoryImpl @Inject constructor(
             val apiService = createApiService(serverUrl)
             val minPremiereDate = LocalDate.now().minusMonths(6).format(movieDateFormatter)
 
-            val authHeader = JellyfinApiService.Companion.createAuthHeader(deviceId, token = accessToken)
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
             val response = apiService.getItemsByFilters(
                 userId = userId,
                 includeItemTypes = "Movie",
@@ -576,12 +539,12 @@ class LibraryRepositoryImpl @Inject constructor(
                 sortBy = "PremiereDate",
                 sortOrder = "Descending",
                 minPremiereDate = minPremiereDate,
-                enableImageTypes = "Primary,Backdrop",
+                enableImageTypes = ApiConstants.IMAGE_TYPE_PRIMARY,
                 authorization = authHeader
             )
 
             response.items.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
             }
         }
     }
@@ -596,7 +559,7 @@ class LibraryRepositoryImpl @Inject constructor(
             val apiService = createApiService(serverUrl)
             val minPremiereDate = LocalDate.now().minusMonths(3).format(movieDateFormatter)
 
-            val authHeader = JellyfinApiService.Companion.createAuthHeader(deviceId, token = accessToken)
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
             val response = apiService.getItemsByFilters(
                 userId = userId,
                 includeItemTypes = "Series",
@@ -606,12 +569,12 @@ class LibraryRepositoryImpl @Inject constructor(
                 sortBy = "PremiereDate",
                 sortOrder = "Descending",
                 minPremiereDate = minPremiereDate,
-                enableImageTypes = "Primary,Backdrop",
+                enableImageTypes = ApiConstants.IMAGE_TYPE_PRIMARY,
                 authorization = authHeader
             )
 
             response.items.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
             }
         }
     }
@@ -625,9 +588,9 @@ class LibraryRepositoryImpl @Inject constructor(
         return safeApiCall(serverUrl) {
             val apiService = createApiService(serverUrl)
 
-            val authHeader = JellyfinApiService.Companion.createAuthHeader(deviceId, token = accessToken)
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
 
-            
+
             val response = apiService.getItemsByFilters(
                 userId = userId,
                 includeItemTypes = "Movie,Series",
@@ -638,12 +601,12 @@ class LibraryRepositoryImpl @Inject constructor(
                 sortOrder = "Descending",
                 isPlayed = false,
                 minCommunityRating = 7.0,
-                enableImageTypes = "Primary,Backdrop",
+                enableImageTypes = ApiConstants.IMAGE_TYPE_PRIMARY,
                 authorization = authHeader
             )
 
             response.items.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
             }
         }
     }
@@ -659,7 +622,7 @@ class LibraryRepositoryImpl @Inject constructor(
         return safeApiCall(serverUrl) {
             val apiService = createApiService(serverUrl)
 
-            val authHeader = JellyfinApiService.Companion.createAuthHeader(deviceId, token = accessToken)
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
             val response = apiService.getItemsByFilters(
                 userId = userId,
                 includeItemTypes = "BoxSet",
@@ -669,12 +632,12 @@ class LibraryRepositoryImpl @Inject constructor(
                 limit = limit,
                 sortBy = "SortName",
                 sortOrder = "Ascending",
-                enableImageTypes = "Primary,Backdrop",
+                enableImageTypes = ApiConstants.IMAGE_TYPE_PRIMARY,
                 authorization = authHeader
             )
 
             response.items.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
             }
         }
     }
@@ -692,7 +655,7 @@ class LibraryRepositoryImpl @Inject constructor(
         return safeApiCall(serverUrl) {
             val apiService = createApiService(serverUrl)
 
-            val authHeader = JellyfinApiService.Companion.createAuthHeader(deviceId, token = accessToken)
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
             val response = apiService.getItemsByFilters(
                 userId = userId,
                 parentId = collectionId,
@@ -701,12 +664,12 @@ class LibraryRepositoryImpl @Inject constructor(
                 limit = limit,
                 sortBy = sortBy.joinToString(","),
                 sortOrder = sortOrder.toApiValue(),
-                enableImageTypes = "Primary,Backdrop",
+                enableImageTypes = ApiConstants.IMAGE_TYPE_PRIMARY,
                 authorization = authHeader
             )
 
             response.items.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
             }
         }
     }
@@ -720,9 +683,9 @@ class LibraryRepositoryImpl @Inject constructor(
         return safeApiCall(serverUrl) {
             val apiService = createApiService(serverUrl)
 
-            val authHeader = JellyfinApiService.Companion.createAuthHeader(deviceId, token = accessToken)
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
 
-            
+
             val response = apiService.getItemsByFilters(
                 userId = userId,
                 includeItemTypes = "Movie,Series",
@@ -736,7 +699,7 @@ class LibraryRepositoryImpl @Inject constructor(
             )
 
             response.items.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
             }
         }
     }
@@ -769,7 +732,7 @@ class LibraryRepositoryImpl @Inject constructor(
         return safeApiCall(serverUrl) {
             val apiService = createApiService(serverUrl)
 
-            val authHeader = JellyfinApiService.Companion.createAuthHeader(deviceId, token = accessToken)
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
             val response = apiService.getItemsByFilters(
                 userId = userId,
                 includeItemTypes = listOf(
@@ -789,7 +752,7 @@ class LibraryRepositoryImpl @Inject constructor(
             )
 
             val items = response.items.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
             }
             mediaItemDao.insertMediaItems(items.map { it.toEntity(null, userId) })
             items
@@ -825,7 +788,7 @@ class LibraryRepositoryImpl @Inject constructor(
             )
 
             val items = response.items.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
             }
             mediaItemDao.insertMediaItems(items.map { it.toEntity(null, userId) })
             items
@@ -845,7 +808,7 @@ class LibraryRepositoryImpl @Inject constructor(
         return safeApiCall(serverUrl) {
             val apiService = createApiService(serverUrl)
 
-            val authHeader = JellyfinApiService.Companion.createAuthHeader(deviceId, token = accessToken)
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
             val response = apiService.getItemsByFilters(
                 userId = userId,
                 includeItemTypes = filters["IncludeItemTypes"],
@@ -860,7 +823,7 @@ class LibraryRepositoryImpl @Inject constructor(
             )
 
             response.items.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
             }
         }
     }
@@ -873,39 +836,105 @@ class LibraryRepositoryImpl @Inject constructor(
         startIndex: Int,
         limit: Int
     ): NetworkResult<List<MediaItem>> {
+        val normalizedQuery = searchTerm.trim()
         val serverUrl = getServerUrl()
         return safeApiCall(serverUrl) {
             val apiService = createApiService(serverUrl)
 
-            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
-            val response = apiService.searchItems(
-                userId = userId.id,
-                searchTerm = searchTerm,
-                includeItemTypes = includeItemTypes,
-                recursive = true,
-                startIndex = startIndex,
-                limit = limit,
-                authorization = authHeader
-            )
+            coroutineScope {
+                val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
+                val baseSearch = async {
+                    val response = apiService.searchItems(
+                        userId = userId.id,
+                        searchTerm = normalizedQuery,
+                        includeItemTypes = includeItemTypes,
+                        recursive = true,
+                        startIndex = startIndex,
+                        limit = limit,
+                        authorization = authHeader
+                    )
 
-            response.items.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                    response.items.map { dto ->
+                        mapToMediaItem(dto)
+                    }
+                }
+
+                val tmdbEnabled = preferencesManager.getTmdbEnabled().first()
+                val tmdbApiKey = PreferenceConstants.DEFAULT_TMDB_API_KEY
+                val shouldUseTmdb = tmdbEnabled &&
+                    tmdbApiKey.isNotBlank() &&
+                    normalizedQuery.length >= 3 &&
+                    startIndex == 0 &&
+                    !serverConnectionManager.state.value.isOffline
+                val tmdbSearch: Deferred<List<String>>? = if (shouldUseTmdb) {
+                    async {
+                        delay(500)
+                        val preferredLanguage = preferencesManager.getPreferredLanguage().first()
+                        val tmdbLanguage = toTmdbLanguage(preferredLanguage)
+                        runCatching {
+                            fetchTmdbSearchTerms(
+                                query = normalizedQuery,
+                                language = tmdbLanguage,
+                                maxResults = 5,
+                                apiKey = tmdbApiKey
+                            )
+                        }.getOrDefault(emptyList())
+                    }
+                } else {
+                    null
+                }
+
+                val baseResults = baseSearch.await()
+                if (baseResults.size >= 6 || tmdbSearch == null) {
+                    return@coroutineScope baseResults
+                }
+
+                val tmdbTerms = tmdbSearch.await()
+                    .filterNot { it.equals(normalizedQuery, ignoreCase = true) }
+                if (tmdbTerms.isEmpty()) {
+                    return@coroutineScope baseResults
+                }
+
+                val mergedResults = LinkedHashMap<String, MediaItem>()
+                baseResults.forEach { item ->
+                    mergedResults.putIfAbsent(item.id, item)
+                }
+
+                for (term in tmdbTerms) {
+                    val response = apiService.searchItems(
+                        userId = userId.id,
+                        searchTerm = term,
+                        includeItemTypes = includeItemTypes,
+                        recursive = true,
+                        startIndex = startIndex,
+                        limit = limit,
+                        authorization = authHeader
+                    )
+
+                    response.items.map { dto ->
+                        mapToMediaItem(dto)
+                    }.forEach { item ->
+                        mergedResults.putIfAbsent(item.id, item)
+                    }
+                }
+
+                mergedResults.values.toList()
             }
         }
     }
 
-    private fun mapToLibrary(dto: BaseItemDto, serverUrl: String): Library {
+    private fun mapToLibrary(dto: BaseItemDto): Library {
         return Library(
             id = dto.id,
             name = dto.name ?: "Unknown LibrarySection",
-            type = LibraryType.Companion.fromString(dto.collectionType),
+            type = LibraryType.fromString(dto.collectionType),
             itemCount = dto.childCount,
             primaryImageTag = dto.imageTags?.primary,
             isFolder = dto.isFolder
         )
     }
 
-    private fun mapToMediaItem(dto: BaseItemDto, serverUrl: String): MediaItem {
+    private fun mapToMediaItem(dto: BaseItemDto): MediaItem {
         return MediaItem(
             id = dto.id,
             name = dto.name ?: "Unknown",
@@ -941,7 +970,8 @@ class LibraryRepositoryImpl @Inject constructor(
             seasonName = dto.seasonName,
             seasonPrimaryImageTag = dto.seasonPrimaryImageTag,
             parentIndexNumber = dto.parentIndexNumber,
-            indexNumber = dto.indexNumber
+            indexNumber = dto.indexNumber,
+            tvdbId = dto.providerIds.extractTvdbId()
         )
     }
 
@@ -1016,6 +1046,7 @@ class LibraryRepositoryImpl @Inject constructor(
             runTimeTicks = runTimeTicks,
             primaryImageTag = primaryImageTag,
             thumbImageTag = thumbImageTag,
+            tvdbId = tvdbId,
             logoImageTag = null,
             backdropImageTags = backdropImageTags,
             genres = genres,
@@ -1039,6 +1070,7 @@ class LibraryRepositoryImpl @Inject constructor(
             runTimeTicks = runTimeTicks,
             primaryImageTag = primaryImageTag,
             thumbImageTag = thumbImageTag,
+            tvdbId = tvdbId,
             backdropImageTags = backdropImageTags,
             genres = genres,
             isFolder = isFolder,
@@ -1072,6 +1104,172 @@ class LibraryRepositoryImpl @Inject constructor(
         return serverConnectionManager.normalizeUrl(stored)
     }
 
+    private suspend fun fetchTmdbSearchTerms(
+        query: String,
+        language: String,
+        maxResults: Int,
+        apiKey: String
+    ): List<String> {
+        val normalizedQuery = normalizeSearchText(query)
+        val primaryCandidates = fetchTmdbCandidates(
+            query = query,
+            language = language,
+            apiKey = apiKey
+        )
+        val relaxedCandidates = if (primaryCandidates.isEmpty()) {
+            var fallbackCandidates: List<String> = emptyList()
+            for (relaxedQuery in buildRelaxedQueries(normalizedQuery)) {
+                if (relaxedQuery.isEmpty() ||
+                    relaxedQuery.equals(normalizedQuery, ignoreCase = true)
+                ) {
+                    continue
+                }
+                fallbackCandidates = fetchTmdbCandidates(
+                    query = relaxedQuery,
+                    language = language,
+                    apiKey = apiKey
+                )
+                if (fallbackCandidates.isNotEmpty()) {
+                    break
+                }
+            }
+            fallbackCandidates
+        } else {
+            emptyList()
+        }
+        val candidates = (primaryCandidates + relaxedCandidates).distinct()
+
+        return candidates.mapNotNull { title ->
+            val normalizedTitle = normalizeSearchText(title)
+            if (normalizedTitle.isEmpty()) {
+                null
+            } else {
+                title.trim() to similarityScore(normalizedQuery, normalizedTitle)
+            }
+        }
+            .sortedByDescending { it.second }
+            .map { it.first }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .take(maxResults)
+    }
+
+    private suspend fun fetchTmdbCandidates(
+        query: String,
+        language: String,
+        apiKey: String
+    ): List<String> {
+        val response = getTmdbApiService().searchMulti(
+            apiKey = apiKey.trim(),
+            query = query,
+            language = language
+        )
+        val multiResults = response.results
+            .filter { it.mediaType == null || it.mediaType == "movie" || it.mediaType == "tv" }
+            .mapNotNull { result ->
+                result.title
+                    ?: result.name
+                    ?: result.originalTitle
+                    ?: result.originalName
+            }
+
+        val tvResults = getTmdbApiService().searchTv(
+            apiKey = apiKey.trim(),
+            query = query,
+            language = language
+        ).results.mapNotNull { result ->
+            result.name
+                ?: result.title
+                ?: result.originalName
+                ?: result.originalTitle
+        }
+
+        val movieResults = getTmdbApiService().searchMovie(
+            apiKey = apiKey.trim(),
+            query = query,
+            language = language
+        ).results.mapNotNull { result ->
+            result.title
+                ?: result.name
+                ?: result.originalTitle
+                ?: result.originalName
+        }
+
+        return (multiResults + tvResults + movieResults)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+    }
+
+    private fun buildRelaxedQueries(normalizedQuery: String): List<String> {
+        if (normalizedQuery.isBlank()) {
+            return emptyList()
+        }
+        val stopWords = setOf("the", "a", "an", "and", "of", "to", "in", "on", "at", "for", "with")
+        val tokens = normalizedQuery.split(Regex("\\s+")).filter { it.isNotBlank() }
+        val filtered = tokens.filter { token ->
+            token.length >= 4 && token !in stopWords
+        }
+        val queries = mutableListOf<String>()
+        if (filtered.isNotEmpty()) {
+            queries.add(filtered.joinToString(" "))
+        }
+        val longest = tokens.maxByOrNull { it.length }.orEmpty()
+        if (longest.length >= 4) {
+            queries.add(longest)
+        }
+        return queries.distinct()
+    }
+
+    private fun toTmdbLanguage(preferredLanguage: String): String {
+        val trimmed = preferredLanguage.trim()
+        if (trimmed.contains("-")) {
+            return trimmed
+        }
+        if (trimmed.length == 2) {
+            return "${trimmed}-US"
+        }
+        return "en-US"
+    }
+
+    private fun normalizeSearchText(text: String): String {
+        val normalized = Normalizer.normalize(text.lowercase(Locale.US), Normalizer.Form.NFD)
+        val stripped = normalized.replace(Regex("\\p{Mn}+"), "")
+        return stripped.replace(Regex("[^a-z0-9]+"), " ").trim()
+    }
+
+    private fun similarityScore(a: String, b: String): Double {
+        val maxLen = maxOf(a.length, b.length)
+        if (maxLen == 0) return 1.0
+        val distance = levenshteinDistance(a, b)
+        return 1.0 - (distance.toDouble() / maxLen.toDouble())
+    }
+
+    private fun levenshteinDistance(a: String, b: String): Int {
+        if (a == b) return 0
+        if (a.isEmpty()) return b.length
+        if (b.isEmpty()) return a.length
+
+        val prev = IntArray(b.length + 1) { it }
+        val curr = IntArray(b.length + 1)
+
+        for (i in a.indices) {
+            curr[0] = i + 1
+            for (j in b.indices) {
+                val cost = if (a[i] == b[j]) 0 else 1
+                curr[j + 1] = minOf(
+                    curr[j] + 1,
+                    prev[j + 1] + 1,
+                    prev[j] + cost
+                )
+            }
+            for (j in prev.indices) {
+                prev[j] = curr[j]
+            }
+        }
+        return prev[b.length]
+    }
+
     override suspend fun getMediaItemDetail(
         userId: String,
         mediaId: String,
@@ -1088,7 +1286,7 @@ class LibraryRepositoryImpl @Inject constructor(
                 authorization = authHeader
             )
 
-            mapToMediaItem(response, serverUrl)
+            mapToMediaItem(response)
         }
     }
 
@@ -1100,7 +1298,7 @@ class LibraryRepositoryImpl @Inject constructor(
         val download = downloadDao.getDownloadByMediaId(normalized)
             ?: downloadDao.getDownloadByMediaSourceId(mediaId)
         if (download != null) {
-            val dir = File(download.filePath).parentFile
+            val dir = File(download.filePath!!).parentFile
             val source = download.mediaSourceId ?: normalized
             val jsonFile = dir?.resolve("$source.json")
             val item = jsonFile?.let {
@@ -1131,7 +1329,7 @@ class LibraryRepositoryImpl @Inject constructor(
             )
 
             response.items.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
             }
         }
     }
@@ -1153,7 +1351,7 @@ class LibraryRepositoryImpl @Inject constructor(
             )
 
             response.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
             }
         }
     }
@@ -1186,6 +1384,48 @@ class LibraryRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun getPersonDetail(
+        userId: String,
+        personId: String,
+        accessToken: String
+    ): NetworkResult<MediaItem> {
+        val serverUrl = getServerUrl()
+        return safeApiCall(serverUrl) {
+            val apiService = createApiService(serverUrl)
+
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
+            val itemDto = apiService.getItemById(
+                userId = userId,
+                itemId = personId,
+                authorization = authHeader
+            )
+
+            mapToMediaItem(itemDto)
+        }
+    }
+
+    override suspend fun getPersonAppearances(
+        userId: String,
+        personId: String,
+        accessToken: String
+    ): NetworkResult<List<MediaItem>> {
+        val serverUrl = getServerUrl()
+        return safeApiCall(serverUrl) {
+            val apiService = createApiService(serverUrl)
+
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
+            val response = apiService.getItemsByPerson(
+                userId = userId,
+                personIds = personId,
+                authorization = authHeader
+            )
+
+            response.items.map { dto ->
+                mapToMediaItem(dto)
+            }
+        }
+    }
+
     override suspend fun getRelatedResourcesBatch(
         mediaId: String,
         userId: String,
@@ -1202,14 +1442,14 @@ class LibraryRepositoryImpl @Inject constructor(
                 limit = 20,
                 authorization = authHeader
             ).items.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
             }
             val special = apiService.getSpecialFeatures(
                 itemId = mediaId,
                 userId = userId,
                 authorization = authHeader
             ).map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
             }
             RelatedResources(similar, special)
         }
@@ -1231,7 +1471,7 @@ class LibraryRepositoryImpl @Inject constructor(
             )
 
             response.items.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
             }
         }
     }
@@ -1309,8 +1549,8 @@ class LibraryRepositoryImpl @Inject constructor(
                 apiService.markAsUnplayed(userId, mediaId, authHeader)
             }
         }.await()
-        if (result is NetworkResult.Success) {
-            scheduleNextUpRefresh(userId, accessToken, invalidate = true)
+        if (result is Success) {
+            refreshNextUpItemsFlow(userId, accessToken)
         }
         return result
     }
@@ -1328,7 +1568,7 @@ class LibraryRepositoryImpl @Inject constructor(
         val serverUrl = getServerUrl()
         val networkResult = enqueue(PriorityDispatcher.Priority.LOW, serverUrl) {
             val apiService = createApiService(serverUrl)
-            val authHeader = JellyfinApiService.Companion.createAuthHeader(deviceId, token = accessToken)
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
             if (newFavorite) {
                 apiService.markAsFavorite(userId, mediaId, authHeader)
             } else {
@@ -1337,7 +1577,7 @@ class LibraryRepositoryImpl @Inject constructor(
         }.await()
 
         return when (networkResult) {
-            is NetworkResult.Success -> {
+            is Success -> {
                 mediaItemDao.updateFavoriteStatus(mediaId, userId, newFavorite, false)
                 pendingActionDao.deleteAction(mediaId, "favorite")
                 Success(Unit)
@@ -1367,7 +1607,7 @@ class LibraryRepositoryImpl @Inject constructor(
         setPlayedLocal(userId, mediaId, isPlayed)
         val serverUrl = getServerUrl()
         val apiService = createApiService(serverUrl)
-        val authHeader = JellyfinApiService.Companion.createAuthHeader(deviceId, token = accessToken)
+        val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
 
         return try {
             if (isPlayed) {
@@ -1379,8 +1619,8 @@ class LibraryRepositoryImpl @Inject constructor(
                 mediaItemDao.updateMediaItem(current.copy(pendingPlayed = false))
             }
             pendingActionDao.deleteAction(mediaId, "played")
-            scheduleNextUpRefresh(userId, accessToken, invalidate = true)
-            NetworkResult.Success(Unit)
+            refreshNextUpItemsFlow(userId, accessToken)
+            Success(Unit)
         } catch (e: Exception) {
             if (previousItem != null) {
                 mediaItemDao.updateMediaItem(previousItem)
@@ -1389,7 +1629,7 @@ class LibraryRepositoryImpl @Inject constructor(
             }
             pendingActionDao.deleteAction(mediaId, "played")
             val message = e.localizedMessage ?: "Unknown error"
-            NetworkResult.Error<Unit>(AppError.Unknown(message), e)
+            NetworkResult.Error(AppError.Unknown(message), e)
         }
     }
 
@@ -1401,7 +1641,7 @@ class LibraryRepositoryImpl @Inject constructor(
                 val token = preferencesManager.getAccessToken().first()
                 if (token != null) {
                     when (val result = getMediaItemDetail(userId, mediaId, token)) {
-                        is NetworkResult.Success -> item = result.data
+                        is Success -> item = result.data
                         else -> Unit
                     }
                 }
@@ -1547,7 +1787,7 @@ class LibraryRepositoryImpl @Inject constructor(
             )
 
             response.items.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
             }.sortedBy { it.indexNumber ?: Int.MAX_VALUE }
         }
     }
@@ -1573,7 +1813,7 @@ class LibraryRepositoryImpl @Inject constructor(
             )
 
             response.items.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
             }.sortedBy { it.indexNumber ?: Int.MAX_VALUE }
         }
     }
@@ -1581,20 +1821,11 @@ class LibraryRepositoryImpl @Inject constructor(
     override suspend fun getNextUpEpisodes(
         userId: String,
         accessToken: String,
-        limit: Int
+        limit: Int,
+        seriesId: String?,
+        disableFirstEpisode: Boolean?
     ): NetworkResult<List<MediaItem>> {
-        return if (nextUpStore.canServe(limit)) {
-            NetworkResult.Success(nextUpStore.snapshot(limit))
-        } else {
-            when (val result = fetchNextUpEpisodesRemote(userId, accessToken, limit)) {
-                is NetworkResult.Success -> {
-                    nextUpStore.setInitial(result.data, limit)
-                    result
-                }
-
-                else -> result
-            }
-        }
+        return fetchNextUpEpisodesRemote(userId, accessToken, limit, seriesId, disableFirstEpisode)
     }
 
     override suspend fun invalidateNextUp(limit: Int) {
@@ -1622,7 +1853,7 @@ class LibraryRepositoryImpl @Inject constructor(
             )
 
             response.items.map { dto ->
-                mapToMediaItem(dto, serverUrl)
+                mapToMediaItem(dto)
             }
         }
     }
@@ -1630,7 +1861,9 @@ class LibraryRepositoryImpl @Inject constructor(
     private suspend fun fetchNextUpEpisodesRemote(
         userId: String,
         accessToken: String,
-        limit: Int
+        limit: Int,
+        seriesId: String? = null,
+        disableFirstEpisode: Boolean? = null
     ): NetworkResult<List<MediaItem>> {
         val serverUrl = getServerUrl()
         return safeApiCall(serverUrl) {
@@ -1640,29 +1873,13 @@ class LibraryRepositoryImpl @Inject constructor(
             val response = apiService.getNextUpItems(
                 userId = userId,
                 limit = limit,
+                seriesId = seriesId,
+                disableFirstEpisode = disableFirstEpisode,
                 authorization = authHeader
             )
 
             response.items.filter { it.type == "Episode" }.map { dto ->
-                mapToMediaItem(dto, serverUrl)
-            }
-        }
-    }
-
-    private suspend fun scheduleNextUpRefresh(
-        userId: String,
-        accessToken: String,
-        limit: Int = DEFAULT_NEXT_UP_LIMIT,
-        invalidate: Boolean = false
-    ) {
-        if (userId.isBlank() || accessToken.isBlank()) return
-        if (invalidate) {
-            nextUpStore.invalidate()
-        }
-        nextUpStore.requestRefresh(limit) { requestedLimit ->
-            when (val result = fetchNextUpEpisodesRemote(userId, accessToken, requestedLimit)) {
-                is NetworkResult.Success -> result.data
-                else -> null
+                mapToMediaItem(dto)
             }
         }
     }
@@ -1687,21 +1904,126 @@ class LibraryRepositoryImpl @Inject constructor(
     }
 
 
+    override suspend fun requestTranscodingUrl(
+        itemId: String,
+        userId: String,
+        accessToken: String,
+        mediaSourceId: String,
+        audioStreamIndex: Int?,
+        subtitleStreamIndex: Int?,
+        startTimeTicks: Long?,
+        maxStreamingBitrate: Int?,
+        parameters: TranscodeRequestParameters,
+    ): NetworkResult<PlaybackStreamInfo> {
+        val serverUrl = getServerUrl()
+        return safeApiCall(serverUrl) {
+            val apiService = createApiService(serverUrl)
+            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
+            val defaultBitrate = parameters.videoBitrate
+                ?: parameters.maxBitrate
+                ?: maxStreamingBitrate
+                ?: 8_000_000
+            val effectiveBitrate = if (defaultBitrate > 0) defaultBitrate else 8_000_000
+            val videoCodecValue = parameters.videoCodec ?: "h264,hevc,av1"
+            val audioCodecValue = parameters.audioCodec ?: "aac"
+            val request = PlaybackInfoRequestDto(
+                mediaSourceId = mediaSourceId,
+                maxStreamingBitrate = effectiveBitrate,
+                enableDirectPlay = false,
+                enableDirectStream = false,
+                enableTranscoding = true,
+                allowVideoStreamCopy = parameters.allowVideoStreamCopy,
+                allowAudioStreamCopy = parameters.allowAudioStreamCopy,
+                enableAutoStreamCopy = parameters.enableAutoStreamCopy,
+                alwaysBurnInSubtitleWhenTranscoding = subtitleStreamIndex != null,
+                audioStreamIndex = audioStreamIndex,
+                subtitleStreamIndex = subtitleStreamIndex,
+                startTimeTicks = startTimeTicks,
+                deviceProfile = PlaybackDeviceProfileDto(
+                    name = "VoidMpvProfile",
+                    maxStreamingBitrate = effectiveBitrate,
+                    transcodingProfiles = listOf(
+                        PlaybackTranscodingProfileDto(
+                            type = "Video",
+                            videoCodec = videoCodecValue,
+                            audioCodec = audioCodecValue,
+                            profile = parameters.videoCodecProfile,
+                            protocol = "hls",
+                            context = "Streaming",
+                            enableMpegtsM2TsMode = true,
+                            transcodeSeekInfo = "Auto",
+                            copyTimestamps = true,
+                            enableSubtitlesInManifest = true,
+                            enableAudioVbrEncoding = true,
+                            breakOnNonKeyFrames = false,
+                            maxAudioChannels = 6,
+                            maxWidth = parameters.maxWidth,
+                            maxHeight = parameters.maxHeight,
+                            maxBitrate = parameters.maxBitrate ?: effectiveBitrate,
+                            videoBitrate = parameters.videoBitrate,
+                        )
+                    ),
+                    codecProfiles = listOf(
+                        PlaybackCodecProfileDto(type = "Video", codec = "h264", container = "ts"),
+                        PlaybackCodecProfileDto(type = "Video", codec = "hevc", container = "ts"),
+                        PlaybackCodecProfileDto(type = "Video", codec = "av1", container = "ts"),
+                    ),
+                    subtitleProfiles = listOf(
+                        PlaybackSubtitleProfileDto(format = "srt", method = "Encode")
+                    )
+                )
+            )
+            val response = apiService.getPlaybackInfo(
+                itemId = itemId,
+                userId = userId,
+                request = request,
+                authorization = authHeader
+            )
+            val transcodingUrl = response.mediaSources.firstNotNullOfOrNull { source ->
+                val url = source.transcodingUrl
+                url?.takeIf { it.contains("master.m3u8", ignoreCase = true) }
+            } ?: throw IllegalStateException("Transcoding URL missing or invalid")
+            val sanitizedBase = serverUrl.removeSuffix("/")
+            val sanitizedPath = if (transcodingUrl.startsWith("/")) {
+                transcodingUrl
+            } else {
+                "/$transcodingUrl"
+            }
+            PlaybackStreamInfo(
+                url = sanitizedBase + sanitizedPath,
+                playSessionId = response.playSessionId,
+            )
+        }
+    }
+
+
     override suspend fun reportPlaybackStart(
         mediaId: String,
         userId: String,
-        accessToken: String
+        accessToken: String,
+        playSessionId: String?
     ): NetworkResult<Unit> {
         val serverUrl = getServerUrl()
         return enqueue(PriorityDispatcher.Priority.HIGH, serverUrl) {
             val apiService = createApiService(serverUrl)
 
             val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
-            val body = PlaybackStartRequest(
-                itemId = mediaId,
-                canSeek = true
-            )
-            apiService.reportPlaybackStart(body, authHeader)
+            if (shouldUseLegacyPlaybackApi()) {
+                apiService.reportLegacyPlaybackStart(
+                    itemId = mediaId,
+                    userId = userId,
+                    canSeek = true,
+                    playSessionId = playSessionId,
+                    authorization = authHeader
+                )
+            } else {
+                val body = PlaybackStartRequest(
+                    itemId = mediaId,
+                    canSeek = true,
+                    playSessionId = playSessionId,
+                )
+                apiService.reportPlaybackStart(body, authHeader)
+            }
         }.await()
     }
 
@@ -1709,19 +2031,32 @@ class LibraryRepositoryImpl @Inject constructor(
         mediaId: String,
         userId: String,
         accessToken: String,
-        positionTicks: Long
+        positionTicks: Long,
+        playSessionId: String?
     ): NetworkResult<Unit> {
         val serverUrl = getServerUrl()
         return enqueue(PriorityDispatcher.Priority.LOW, serverUrl) {
             val apiService = createApiService(serverUrl)
 
             val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
-            val body = PlaybackProgressRequest(
-                itemId = mediaId,
-                positionTicks = positionTicks,
-                isPaused = false
-            )
-            apiService.reportPlaybackProgress(body, authHeader)
+            if (shouldUseLegacyPlaybackApi()) {
+                apiService.reportLegacyPlaybackProgress(
+                    itemId = mediaId,
+                    userId = userId,
+                    positionTicks = positionTicks,
+                    playSessionId = playSessionId,
+                    isPaused = false,
+                    authorization = authHeader
+                )
+            } else {
+                val body = PlaybackProgressRequest(
+                    itemId = mediaId,
+                    positionTicks = positionTicks,
+                    isPaused = false,
+                    playSessionId = playSessionId,
+                )
+                apiService.reportPlaybackProgress(body, authHeader)
+            }
         }.await()
     }
 
@@ -1729,55 +2064,51 @@ class LibraryRepositoryImpl @Inject constructor(
         mediaId: String,
         userId: String,
         accessToken: String,
-        positionTicks: Long
+        positionTicks: Long,
+        playSessionId: String?,
+        mediaSourceId: String?
     ): NetworkResult<Unit> {
         val serverUrl = getServerUrl()
         return enqueue(PriorityDispatcher.Priority.LOW, serverUrl) {
             val apiService = createApiService(serverUrl)
 
             val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
-            val body = PlaybackStopRequest(
-                itemId = mediaId,
-                positionTicks = positionTicks
-            )
-            apiService.reportPlaybackStop(body, authHeader)
+            if (shouldUseLegacyPlaybackApi()) {
+                apiService.reportLegacyPlaybackStop(
+                    itemId = mediaId,
+                    userId = userId,
+                    positionTicks = positionTicks,
+                    playSessionId = playSessionId,
+                    mediaSourceId = mediaSourceId,
+                    authorization = authHeader
+                )
+            } else {
+                val body = PlaybackStopRequest(
+                    itemId = mediaId,
+                    positionTicks = positionTicks,
+                    playSessionId = playSessionId,
+                    mediaSourceId = mediaSourceId,
+                )
+                apiService.reportPlaybackStop(body, authHeader)
+            }
         }.await()
     }
 
-    override fun startResumeItemsSync(userId: String, accessToken: String) {
-        if (wsJob != null) return
-        wsJob = wsScope.launch {
-            val serverUrl = getServerUrl()
-            val wsUrl = if (serverUrl.endsWith("/")) "${serverUrl}socket" else "$serverUrl/socket"
-            var currentToken = accessToken
-            var refreshed = false
-            fun connect() {
-                val header = JellyfinApiService.createAuthHeader(deviceId, token = currentToken)
-                webSocketClient.start(wsUrl, header, userId, deviceId) {
-                    if (!refreshed) {
-                        refreshed = true
-                        wsScope.launch {
-                            
-                            currentToken = preferencesManager.getAccessToken().first() ?: currentToken
-                            connect()
-                        }
-                    }
-                }
-            }
-            connect()
-            webSocketClient.events.collect { event ->
-                continueWatchingStore.handle(event)
-                when (event) {
-                    is PlaybackEvent.Progress,
-                    is PlaybackEvent.Stop -> scheduleNextUpRefresh(userId, currentToken)
-                }
-            }
+    private suspend fun shouldUseLegacyPlaybackApi(): Boolean {
+        return preferencesManager.getServerLegacyPlayback().first()
+    }
+
+    override suspend fun refreshResumeItemsFlow(userId: String, accessToken: String) {
+        when (val result = getResumeItems(userId, accessToken)) {
+            is Success -> continueWatchingStore.update(result.data)
+            else -> {} // Silently fail, keep existing data
         }
     }
 
-    override fun stopResumeItemsSync() {
-        wsJob?.cancel()
-        wsJob = null
-        webSocketClient.stop()
+    override suspend fun refreshNextUpItemsFlow(userId: String, accessToken: String) {
+        when (val result = fetchNextUpEpisodesRemote(userId, accessToken, DEFAULT_NEXT_UP_LIMIT)) {
+            is Success -> nextUpStore.update(result.data)
+            else -> {} // Silently fail, keep existing data
+        }
     }
 }

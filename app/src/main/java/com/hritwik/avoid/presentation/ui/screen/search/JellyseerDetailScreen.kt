@@ -25,6 +25,9 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -55,6 +58,7 @@ import com.hritwik.avoid.domain.model.jellyseer.JellyseerVideoQuality
 import com.hritwik.avoid.domain.model.library.MediaItem
 import com.hritwik.avoid.presentation.ui.components.common.NetworkImage
 import com.hritwik.avoid.presentation.ui.components.common.states.LoadingState
+import com.hritwik.avoid.presentation.ui.components.dialogs.VoidAlertDialog
 import com.hritwik.avoid.presentation.ui.components.jellyseer.JellyseerAvailabilityBadge
 import com.hritwik.avoid.presentation.ui.components.jellyseer.JellyseerRequestStatusBadge
 import com.hritwik.avoid.presentation.ui.components.layout.SectionHeader
@@ -119,7 +123,11 @@ fun JellyseerDetailScreen(
                     JellyseerDetailContent(
                         state = state,
                         onBackClick = onBackClick,
-                        onRequestClick = { viewModel.requestMedia(mediaId, mediaType) },
+                        onRequestClick = { viewModel.showConfirmationDialog() },
+                        onConfirmRequest = { viewModel.requestMedia(mediaId, mediaType) },
+                        onDismissConfirmation = { viewModel.hideConfirmationDialog() },
+                        onDismissSuccess = { viewModel.hideSuccessDialog() },
+                        onDismissError = { viewModel.hideErrorDialog() },
                         onQualitySelected = viewModel::selectVideoQuality,
                         onExactTitleSelected = viewModel::selectExactTitle
                     )
@@ -134,6 +142,10 @@ private fun JellyseerDetailContent(
     state: JellyseerDetailUiState,
     onBackClick: () -> Unit,
     onRequestClick: () -> Unit,
+    onConfirmRequest: () -> Unit,
+    onDismissConfirmation: () -> Unit,
+    onDismissSuccess: () -> Unit,
+    onDismissError: () -> Unit,
     onQualitySelected: (JellyseerVideoQuality) -> Unit,
     onExactTitleSelected: (JellyseerSearchResult) -> Unit
 ) {
@@ -192,6 +204,62 @@ private fun JellyseerDetailContent(
                 }
             }
         }
+
+        // Confirmation Dialog
+        VoidAlertDialog(
+            visible = state.showConfirmationDialog,
+            onDismissRequest = onDismissConfirmation,
+            title = "Confirm Request",
+            icon = Icons.Default.Info,
+            confirmText = "Confirm",
+            onConfirm = onConfirmRequest,
+            dismissText = "Cancel",
+            onDismissButton = onDismissConfirmation,
+            content = {
+                Text(
+                    text = "Do you want to request ${detail.title} in ${state.selectedVideoQuality.displayName} quality?",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = PrimaryText
+                )
+                Spacer(modifier = Modifier.height(calculateRoundedValue(12).sdp))
+            }
+        )
+
+        // Success Dialog
+        VoidAlertDialog(
+            visible = state.showSuccessDialog,
+            onDismissRequest = onDismissSuccess,
+            title = "Request Submitted",
+            icon = Icons.Default.CheckCircle,
+            confirmText = "OK",
+            onConfirm = onDismissSuccess,
+            content = {
+                Text(
+                    text = state.requestMessage ?: "Your request has been submitted successfully.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = PrimaryText
+                )
+                Spacer(modifier = Modifier.height(calculateRoundedValue(12).sdp))
+            }
+        )
+
+        // Error Dialog
+        VoidAlertDialog(
+            visible = state.showErrorDialog,
+            onDismissRequest = onDismissError,
+            title = "Request Failed",
+            icon = Icons.Default.Error,
+            confirmText = "OK",
+            onConfirm = onDismissError,
+            content = {
+                Text(
+                    text = state.requestError ?: "Failed to submit request. Please try again.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = PrimaryText
+                )
+                Spacer(modifier = Modifier.height(calculateRoundedValue(12).sdp))
+            }
+        )
     }
 }
 

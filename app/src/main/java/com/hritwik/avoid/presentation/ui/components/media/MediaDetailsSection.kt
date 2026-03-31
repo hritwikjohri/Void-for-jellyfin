@@ -2,14 +2,19 @@ package com.hritwik.avoid.presentation.ui.components.media
 
 import com.hritwik.avoid.utils.helpers.calculateRoundedValue
 import ir.kaaveh.sdpcompose.sdp
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.hritwik.avoid.domain.model.library.MediaItem
 import com.hritwik.avoid.presentation.ui.theme.PrimaryText
@@ -21,6 +26,8 @@ fun MediaDetailsSection(
     modifier: Modifier = Modifier,
     contentType: MediaContentType = MediaContentType.fromMediaItem(mediaItem),
     additionalDetails: List<Pair<String, String>> = emptyList(),
+    onMoreDetailsClick: (() -> Unit)? = null,
+    moreDetailsColor: Color = PrimaryText,
     episodeCount: Int? = null,
     seasonCount: Int? = null
 ) {
@@ -65,6 +72,19 @@ fun MediaDetailsSection(
             DetailRow(
                 label = label,
                 value = value
+            )
+        }
+
+        onMoreDetailsClick?.let {
+            Text(
+                text = "More",
+                style = MaterialTheme.typography.bodyMedium,
+                color = moreDetailsColor,
+                textAlign = TextAlign.End,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = calculateRoundedValue(6).sdp)
+                    .clickable(onClick = it)
             )
         }
     }

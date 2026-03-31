@@ -1,20 +1,26 @@
 package com.hritwik.avoid.presentation.ui.state
 
+import androidx.compose.runtime.Stable
 import com.hritwik.avoid.domain.model.library.Library
 import com.hritwik.avoid.domain.model.library.MediaItem
 
+@Stable
 data class LibraryState(
     val isLoading: Boolean = false,
+    val sectionStates: Map<HomeSection, HomeSectionLoadState> = emptyMap(),
     val libraries: List<Library> = emptyList(),
 
-    
+
     val latestItems: List<MediaItem> = emptyList(),
+    val latestItemsByLibrary: Map<String, List<MediaItem>> = emptyMap(),
     val resumeItems: List<MediaItem> = emptyList(),
     val nextUpItems: List<MediaItem> = emptyList(),
 
-    
+
     val latestEpisodes: List<MediaItem> = emptyList(),
     val latestMovies: List<MediaItem> = emptyList(),
+    val movies: List<MediaItem> = emptyList(),
+    val shows: List<MediaItem> = emptyList(),
     val recentlyReleasedMovies: List<MediaItem> = emptyList(),
     val recentlyReleasedShows: List<MediaItem> = emptyList(),
 

@@ -7,5 +7,6 @@ data class ServerConfig(
     val serverUrl: String,
     val serverName: String? = null,
     val version: String? = null,
+    val isLegacyPlaybackApi: Boolean = false,
     val isValid: Boolean = false
 )

@@ -7,13 +7,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Hevc
+import androidx.compose.material.icons.filled.HdrOn
 import androidx.compose.material.icons.filled.Monitor
 import androidx.compose.material.icons.filled.SmartDisplay
-import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.TouchApp
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VideoSettings
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -32,11 +32,14 @@ import com.hritwik.avoid.presentation.ui.components.common.SettingItem
 import com.hritwik.avoid.presentation.ui.components.common.SettingItemWithSwitch
 import com.hritwik.avoid.presentation.ui.components.dialogs.DecoderSelectionDialog
 import com.hritwik.avoid.presentation.ui.components.dialogs.DisplayModeSelectionDialog
+import com.hritwik.avoid.presentation.ui.components.dialogs.HdrFormatSelectionDialog
 import com.hritwik.avoid.presentation.ui.components.dialogs.MpvConfigDialog
+import com.hritwik.avoid.presentation.ui.components.dialogs.PlayerProgressColorDialog
 import com.hritwik.avoid.presentation.ui.components.dialogs.PlayerSelectionDialog
 import com.hritwik.avoid.presentation.ui.components.dialogs.PreferredAudioCodecDialog
 import com.hritwik.avoid.presentation.ui.components.dialogs.PreferredVideoCodecDialog
 import com.hritwik.avoid.presentation.ui.theme.PrimaryText
+import com.hritwik.avoid.presentation.ui.theme.resolvePlayerProgressColorLabel
 import com.hritwik.avoid.presentation.viewmodel.user.UserDataViewModel
 import com.hritwik.avoid.utils.helpers.calculateRoundedValue
 import ir.kaaveh.sdpcompose.sdp
@@ -49,11 +52,14 @@ fun PlayerTabContent(
     val settings by userDataViewModel.personalizationSettings.collectAsStateWithLifecycle()
     val displayMode = playbackSettings.displayMode
     val decoderMode = playbackSettings.decoderMode
+    val hdrFormatPreference = playbackSettings.hdrFormatPreference
     val playerType = playbackSettings.playerType
     val preferredVideoCodec = playbackSettings.preferredVideoCodec
     val preferredAudioCodec = playbackSettings.preferredAudioCodec
     val mpvConfig by userDataViewModel.mpvConfig.collectAsStateWithLifecycle()
     val gestures = settings.gesturesEnabled
+    val progressBarColorKey by userDataViewModel.playerProgressColor.collectAsStateWithLifecycle()
+    val seekColorKey by userDataViewModel.playerProgressSeekColor.collectAsStateWithLifecycle()
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(calculateRoundedValue(16).sdp),
@@ -144,7 +150,7 @@ fun PlayerTabContent(
             var showVideoCodecDialog by remember { mutableStateOf(false) }
 
             SettingItem(
-                icon = Icons.Default.Tune,
+                icon = Icons.Default.Hevc,
                 title = stringResource(id = R.string.settings_preferred_video_codec_title),
                 subtitle = stringResource(id = R.string.settings_preferred_video_codec_subtitle),
                 onClick = { showVideoCodecDialog = true },
@@ -167,7 +173,7 @@ fun PlayerTabContent(
             var showAudioCodecDialog by remember { mutableStateOf(false) }
 
             SettingItem(
-                icon = Icons.AutoMirrored.Filled.VolumeUp,
+                icon = Icons.Filled.GraphicEq,
                 title = stringResource(id = R.string.settings_preferred_audio_codec_title),
                 subtitle = stringResource(id = R.string.settings_preferred_audio_codec_subtitle),
                 onClick = { showAudioCodecDialog = true },
@@ -205,6 +211,55 @@ fun PlayerTabContent(
                         showDisplayModeDialog = false
                     },
                     onDismiss = { showDisplayModeDialog = false }
+                )
+            }
+        }
+
+        item {
+            var showHdrDialog by remember { mutableStateOf(false) }
+
+            SettingItem(
+                icon = Icons.Default.HdrOn,
+                title = "HDR Format",
+                subtitle = "Choose HDR10+ or Dolby Vision",
+                onClick = { showHdrDialog = true },
+                trailingText = hdrFormatPreference.displayName
+            )
+
+            if (showHdrDialog) {
+                HdrFormatSelectionDialog(
+                    currentPreference = hdrFormatPreference,
+                    onPreferenceSelected = { preference ->
+                        userDataViewModel.setHdrFormatPreference(preference)
+                        showHdrDialog = false
+                    },
+                    onDismiss = { showHdrDialog = false }
+                )
+            }
+        }
+
+        item {
+            var showProgressDialog by remember { mutableStateOf(false) }
+            val progressColorLabel = resolvePlayerProgressColorLabel(progressBarColorKey)
+
+            SettingItem(
+                icon = Icons.Default.GraphicEq,
+                title = "Seekbar Color",
+                subtitle = "Customize playback progress colors",
+                onClick = { showProgressDialog = true },
+                trailingText = progressColorLabel
+            )
+
+            if (showProgressDialog) {
+                PlayerProgressColorDialog(
+                    currentColorKey = progressBarColorKey,
+                    currentSeekColorKey = seekColorKey,
+                    onColorSaved = { colorKey, seekKey ->
+                        userDataViewModel.setPlayerProgressColor(colorKey)
+                        userDataViewModel.setPlayerProgressSeekColor(seekKey)
+                        showProgressDialog = false
+                    },
+                    onDismiss = { showProgressDialog = false }
                 )
             }
         }

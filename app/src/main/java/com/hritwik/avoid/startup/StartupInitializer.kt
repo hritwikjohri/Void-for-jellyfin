@@ -19,16 +19,19 @@ import kotlinx.coroutines.flow.first
 
 class StartupInitializer : Initializer<Unit> {
     override fun create(context: Context) {
-        WorkManager.getInstance(context).enqueue(
-            OneTimeWorkRequestBuilder<StartupWorker>().build()
-        )
+        // Cancel any pending background work from previous installs to avoid startup network load
+        WorkManager.getInstance(context).cancelAllWork()
+
+        // Skip StartupWorker to avoid extra network load during app launch
 
         val entryPoint = EntryPointAccessors.fromApplication(
             context,
             StartupEntryPoint::class.java
         )
         CoroutineScope(Dispatchers.Default).launch {
-            entryPoint.serverConnectionManager().ensureActiveConnection()
+            // Removed ensureActiveConnection() - ServerConnectionManager automatically
+            // handles connection state changes via its init block. No need to proactively
+            // ping servers on app startup (saves up to 5 seconds).
             val syncEnabled = entryPoint.preferencesManager().getSyncEnabled().first()
             if (syncEnabled) {
                 UserDataSyncWorker.enqueue(context)

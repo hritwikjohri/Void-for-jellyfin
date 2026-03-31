@@ -5,6 +5,7 @@ data class Server(
     val name: String,
     val version: String,
     val isConnected: Boolean = false,
+    val isLegacyPlaybackApi: Boolean = false,
     val connectionMethods: List<ServerConnectionMethod> = emptyList(),
     val activeConnection: ServerConnectionMethod? = null
 )

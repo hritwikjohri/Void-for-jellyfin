@@ -14,7 +14,9 @@ class GetNextUpUseCase @Inject constructor(
     data class Params(
         val userId: String,
         val accessToken: String,
-        val limit: Int = 20
+        val limit: Int = 20,
+        val seriesId: String? = null,
+        val disableFirstEpisode: Boolean? = null
     )
 
     override suspend fun execute(parameters: Params): NetworkResult<List<MediaItem>> {
@@ -22,7 +24,9 @@ class GetNextUpUseCase @Inject constructor(
         return libraryRepository.getNextUpEpisodes(
             userId = parameters.userId,
             accessToken = parameters.accessToken,
-            limit = parameters.limit
+            limit = parameters.limit,
+            seriesId = parameters.seriesId,
+            disableFirstEpisode = parameters.disableFirstEpisode
         )
     }
 }

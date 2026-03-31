@@ -39,7 +39,8 @@ data class MediaItem(
     val seasonName: String? = null,
     val seasonPrimaryImageTag: String? = null,
     val parentIndexNumber: Int? = null,
-    val indexNumber: Int? = null
+    val indexNumber: Int? = null,
+    val tvdbId: String? = null
 ) : Parcelable {
     fun getLogoUrl(serverUrl: String): String? {
         val tag = logoImageTag ?: return null

@@ -1,8 +1,9 @@
 package com.hritwik.avoid.domain.model.playback
 
-enum class PlayerType(val value: String, val description: String) {
-    MPV("MPV", "Use the MPV-based player"),
-    EXOPLAYER("ExoPlayer", "Use the ExoPlayer-based player");
+enum class PlayerType(val value: String) {
+    AUTO("Auto"),
+    MPV("MPV"),
+    EXOPLAYER("ExoPlayer");
 
     companion object {
         fun fromValue(value: String): PlayerType = entries.firstOrNull {

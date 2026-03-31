@@ -3,8 +3,10 @@ package com.hritwik.avoid.presentation.viewmodel.player
 import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.MediaItem as ExoMediaItem
 import androidx.media3.common.util.Log
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.cache.CacheDataSource
 import com.hritwik.avoid.data.common.NetworkResult
 import com.hritwik.avoid.core.ServiceManager
 import com.hritwik.avoid.data.local.PreferencesManager
@@ -14,6 +16,7 @@ import com.hritwik.avoid.data.local.database.dao.PlaybackLogDao
 import com.hritwik.avoid.data.local.database.entities.DownloadEntity
 import com.hritwik.avoid.data.local.database.entities.PlaybackLogEntity
 import com.hritwik.avoid.data.local.model.PlaybackPreferences
+import com.hritwik.avoid.data.network.MtlsProxyServer
 import com.hritwik.avoid.data.sync.PlaybackLogSyncWorker
 import com.hritwik.avoid.domain.model.library.MediaItem
 import com.hritwik.avoid.domain.model.media.MediaSource
@@ -23,17 +26,21 @@ import com.hritwik.avoid.domain.model.media.VideoQuality
 import com.hritwik.avoid.domain.repository.LibraryRepository
 import com.hritwik.avoid.domain.usecase.library.GetMediaDetailUseCase
 import com.hritwik.avoid.domain.model.playback.PlaybackTranscodeOption
+import com.hritwik.avoid.domain.model.playback.PlaybackStreamInfo
+import com.hritwik.avoid.domain.model.playback.Segment
 import com.hritwik.avoid.domain.model.playback.PreferredAudioCodec
 import com.hritwik.avoid.domain.model.playback.PreferredVideoCodec
+import com.hritwik.avoid.domain.model.playback.TranscodeRequestParameters
 import com.hritwik.avoid.presentation.ui.state.TrackChangeEvent
 import com.hritwik.avoid.presentation.ui.state.VideoPlaybackState
 import com.hritwik.avoid.utils.extensions.getStreamContainer
-import com.hritwik.avoid.utils.helpers.ConnectivityObserver
 import com.hritwik.avoid.presentation.viewmodel.BaseViewModel
 import com.hritwik.avoid.utils.constants.ApiConstants
+import com.hritwik.avoid.data.connection.ServerConnectionManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -56,13 +63,18 @@ class VideoPlaybackViewModel @Inject constructor(
     private val playbackLogDao: PlaybackLogDao,
     private val getMediaDetailUseCase: GetMediaDetailUseCase,
     private val serviceManager: ServiceManager,
+    private val mtlsProxyServer: MtlsProxyServer,
     @ApplicationContext private val context: Context,
-    connectivityObserver: ConnectivityObserver
-) : BaseViewModel(connectivityObserver) {
-    private val _state = MutableStateFlow(VideoPlaybackState())
+    serverConnectionManager: ServerConnectionManager,
+    private val exoCacheDataSourceFactory: CacheDataSource.Factory,
+) : BaseViewModel(serverConnectionManager) {
+    private val _state = MutableStateFlow(
+        VideoPlaybackState(cacheDataSourceFactory = exoCacheDataSourceFactory)
+    )
     val state: StateFlow<VideoPlaybackState> = _state.asStateFlow()
     private val _trackChangeEvents = MutableSharedFlow<TrackChangeEvent>()
     val trackChangeEvents: SharedFlow<TrackChangeEvent> = _trackChangeEvents.asSharedFlow()
+    private var lastMediaItemId: String? = null
     private var currentMediaSourceId: String? = null
     private var currentAudioStreamIndex: Int? = null
     private var currentSubtitleStreamIndex: Int? = null
@@ -72,6 +84,24 @@ class VideoPlaybackViewModel @Inject constructor(
     private var selectedTranscodeOption: PlaybackTranscodeOption = PlaybackTranscodeOption.ORIGINAL
     private var preferredVideoCodec: PreferredVideoCodec = PreferredVideoCodec.H264
     private var preferredAudioCodec: PreferredAudioCodec = PreferredAudioCodec.AAC
+    private var rebuildJob: Job? = null
+
+    private fun resolveMpvUrl(url: String?): String? = mtlsProxyServer.proxiedUrlFor(url)
+
+    private fun resolveExoMediaItem(url: String?): ExoMediaItem? {
+        val sourceUrl = url?.takeIf { it.isNotBlank() } ?: return null
+        val parsed = runCatching { Uri.parse(sourceUrl) }.getOrNull()
+        val finalUrl = if (parsed?.host == "127.0.0.1") {
+            sourceUrl
+        } else {
+            mtlsProxyServer.proxiedUrlFor(sourceUrl) ?: sourceUrl
+        }
+        return ExoMediaItem.fromUri(finalUrl)
+    }
+
+    private fun isServerOffline(): Boolean {
+        return serverConnectionManager.state.value.isOffline
+    }
 
     init {
         viewModelScope.launch {
@@ -106,7 +136,7 @@ class VideoPlaybackViewModel @Inject constructor(
 
             if (!mediaItem.hasPlaybackDataLoaded()) {
                 val download = downloadDao.getDownloadByMediaId(mediaItem.id)
-                val isOffline = !isConnected.value
+                val isOffline = isServerOffline()
                 if (download != null) {
                     val offlineItem = buildOfflineMediaItem(mediaItem, download)
                     setupVideoOptions(offlineItem)
@@ -123,7 +153,7 @@ class VideoPlaybackViewModel @Inject constructor(
                                 val offlineItem = buildOfflineMediaItem(mediaItem, fallbackDownload)
                                 setupVideoOptions(offlineItem)
                             } else {
-                                val errorMessage = if (isOffline) "No network connection" else result.message
+                                val errorMessage = if (isOffline) "Server unreachable" else result.message
                                 _state.value = _state.value.copy(
                                     isLoading = false,
                                     error = errorMessage
@@ -228,13 +258,15 @@ class VideoPlaybackViewModel @Inject constructor(
             preferredSubtitleLanguage = preferredSubtitleLanguage,
             playbackTranscodeOptions = transcodeOptions,
             selectedPlaybackTranscodeOption = selectedTranscodeOption,
-            totalDurationSeconds = mediaItem.runTimeTicks?.div(10_000_000L)
+            totalDurationSeconds = null
         )
 
         if (downloadPath != null) {
+            val localVideoUrl = Uri.fromFile(File(downloadPath)).toString()
             _state.value = _state.value.copy(
-                videoUrl = Uri.fromFile(File(downloadPath)).toString(),
-                exoMediaItem = null
+                videoUrl = localVideoUrl,
+                mpvVideoUrl = resolveMpvUrl(localVideoUrl),
+                exoMediaItem = resolveExoMediaItem(localVideoUrl)
             )
         }
     }
@@ -312,9 +344,7 @@ class VideoPlaybackViewModel @Inject constructor(
                 availableAudioStreams = updatedSource.audioStreams,
                 availableSubtitleStreams = updatedSource.subtitleStreams,
                 preferredAudioLanguage = updatedOptions.selectedAudioStream?.language,
-                preferredSubtitleLanguage = updatedOptions.selectedSubtitleStream?.language,
-                totalDurationSeconds = updatedSource.runTimeTicks?.div(10_000_000L)
-                    ?: _state.value.totalDurationSeconds
+                preferredSubtitleLanguage = updatedOptions.selectedSubtitleStream?.language
             )
             persistPlaybackPreferences()
         }
@@ -387,10 +417,6 @@ class VideoPlaybackViewModel @Inject constructor(
         _state.value = _state.value.copy(playbackOptions = updatedOptions)
     }
 
-    
-    
-    
-
     fun initializePlayer(
         mediaItem: MediaItem,
         serverUrl: String,
@@ -401,22 +427,31 @@ class VideoPlaybackViewModel @Inject constructor(
         subtitleStreamIndex: Int? = null,
         startPositionMs: Long = 0
     ) {
+        if (lastMediaItemId != mediaItem.id) {
+            // Don't carry stream selections across different items.
+            currentMediaSourceId = null
+            currentAudioStreamIndex = null
+            currentSubtitleStreamIndex = null
+            lastMediaItemId = mediaItem.id
+        }
         savedServerUrl = serverUrl
         savedUserId = userId
         savedAccessToken = accessToken
         _state.value = _state.value.copy(mediaItem = mediaItem)
         viewModelScope.launch {
             try {
-                val isOffline = !isConnected.value
+                val isOffline = isServerOffline()
                 var resolvedStartMs = startPositionMs
                 if (resolvedStartMs == 0L) {
                     val localTicks = preferencesManager.getPlaybackPosition(mediaItem.id).first()
-                    resolvedStartMs = localTicks?.div(10_000) ?: 0L
-                    if (resolvedStartMs == 0L && !isOffline) {
-                        resolvedStartMs = when (val result = libraryRepository.getPlaybackPosition(userId, mediaItem.id, accessToken)) {
+                    val localStartMs = localTicks?.div(10_000) ?: 0L
+                    resolvedStartMs = localStartMs
+                    if (!isOffline) {
+                        val serverStartMs = when (val result = libraryRepository.getPlaybackPosition(userId, mediaItem.id, accessToken)) {
                             is NetworkResult.Success -> result.data / 10_000
                             else -> 0L
                         }
+                        resolvedStartMs = max(localStartMs, serverStartMs)
                     }
                     if (resolvedStartMs == 0L) {
                         _state.value = _state.value.copy(error = "Unable to restore playback progress")
@@ -500,9 +535,11 @@ class VideoPlaybackViewModel @Inject constructor(
                 if (filePath != null) {
                     selectedTranscodeOption = PlaybackTranscodeOption.ORIGINAL
                     val nextUpdateCount = _state.value.startPositionUpdateCount + 1
+                    val localVideoUrl = Uri.fromFile(File(filePath)).toString()
                     _state.value = _state.value.copy(
-                        videoUrl = Uri.fromFile(File(filePath)).toString(),
-                        exoMediaItem = null,
+                        videoUrl = localVideoUrl,
+                        mpvVideoUrl = resolveMpvUrl(localVideoUrl),
+                        exoMediaItem = resolveExoMediaItem(localVideoUrl),
                         cacheDataSourceFactory = null,
                         mediaSourceId = currentMediaSourceId,
                         audioStreamIndex = currentAudioStreamIndex,
@@ -515,7 +552,6 @@ class VideoPlaybackViewModel @Inject constructor(
                         availableSubtitleStreams = availableSubtitleStreams,
                         playbackTranscodeOptions = listOf(PlaybackTranscodeOption.ORIGINAL),
                         selectedPlaybackTranscodeOption = selectedTranscodeOption,
-                        totalDurationSeconds = mediaItem.runTimeTicks?.div(10_000_000L),
                         lastSavedPosition = resolvedStartMs / 1000,
                         playbackOptions = _state.value.playbackOptions.copy(
                             selectedMediaSource = selectedSource,
@@ -545,7 +581,7 @@ class VideoPlaybackViewModel @Inject constructor(
 
                 val startOffsetMs = if (selectedTranscodeOption.isOriginal) 0L else resolvedStartMs
                 val playerStartMs = if (selectedTranscodeOption.isOriginal) resolvedStartMs else 0L
-                val videoUrl = buildVideoUrl(
+                val urlResult = buildVideoUrl(
                     serverUrl = serverUrl,
                     accessToken = accessToken,
                     mediaItem = mediaItem,
@@ -556,16 +592,38 @@ class VideoPlaybackViewModel @Inject constructor(
                     audioStreamIndex = currentAudioStreamIndex,
                     subtitleStreamIndex = currentSubtitleStreamIndex,
                     transcodeOption = selectedTranscodeOption,
-                    startPositionMs = if (selectedTranscodeOption.isOriginal) null else resolvedStartMs
+                    startPositionMs = if (selectedTranscodeOption.isOriginal) null else resolvedStartMs,
+                    userId = userId
                 )
 
+                val streamInfo = when (urlResult) {
+                    is NetworkResult.Success -> urlResult.data
+                    is NetworkResult.Error -> {
+                        _state.value = _state.value.copy(
+                            isLoading = false,
+                            error = urlResult.message,
+                            availableAudioStreams = availableAudioStreams,
+                            availableSubtitleStreams = availableSubtitleStreams
+                        )
+                        return@launch
+                    }
+                    else -> {
+                        _state.value = _state.value.copy(isLoading = false)
+                        return@launch
+                    }
+                }
+                val videoUrl = streamInfo.url
+                val playSessionId = streamInfo.playSessionId
                 val nextUpdateCount = _state.value.startPositionUpdateCount + 1
                 val availableTranscodeOptions = PlaybackTranscodeOption.entries.toList()
 
                 _state.value = _state.value.copy(
+                    isLoading = false,
                     videoUrl = videoUrl,
-                    exoMediaItem = null,
-                    cacheDataSourceFactory = null,
+                    mpvVideoUrl = resolveMpvUrl(videoUrl),
+                    exoMediaItem = resolveExoMediaItem(videoUrl),
+                    cacheDataSourceFactory = exoCacheDataSourceFactory,
+                    playSessionId = playSessionId,
                     mediaSourceId = currentMediaSourceId,
                     audioStreamIndex = currentAudioStreamIndex,
                     subtitleStreamIndex = currentSubtitleStreamIndex,
@@ -578,6 +636,7 @@ class VideoPlaybackViewModel @Inject constructor(
                     playbackTranscodeOptions = availableTranscodeOptions,
                     selectedPlaybackTranscodeOption = selectedTranscodeOption,
                     lastSavedPosition = (startOffsetMs + playerStartMs) / 1000,
+                    error = null,
                     playbackOptions = _state.value.playbackOptions.copy(
                         selectedMediaSource = selectedSource,
                         selectedAudioStream = selectedAudioStream,
@@ -591,6 +650,9 @@ class VideoPlaybackViewModel @Inject constructor(
                         siblingEpisodes = emptyList(),
                         currentEpisodeIndex = -1
                     )
+                }
+                if (!selectedTranscodeOption.isOriginal) {
+                    updateDurationFromApi(mediaItem)
                 }
                 if (currentAudioStreamIndex != null || currentSubtitleStreamIndex != null) {
                     viewModelScope.launch {
@@ -764,7 +826,7 @@ class VideoPlaybackViewModel @Inject constructor(
         }
     }
 
-    private fun buildVideoUrl(
+    private suspend fun buildVideoUrl(
         serverUrl: String,
         accessToken: String,
         mediaItem: MediaItem,
@@ -774,51 +836,54 @@ class VideoPlaybackViewModel @Inject constructor(
         subtitleStreamIndex: Int? = null,
         transcodeOption: PlaybackTranscodeOption = PlaybackTranscodeOption.ORIGINAL,
         startPositionMs: Long? = null,
-    ): String {
-        return buildString {
-            append(serverUrl.removeSuffix("/"))
-            append("/Videos/")
-            append(mediaItem.id)
-            append("/stream")
-            append("?static=")
-            append(transcodeOption.isStaticStream)
-            append("&container=")
-            append(container)
-            append("&MediaSourceId=")
-            append(mediaSourceId)
-            audioStreamIndex?.let { append("&AudioStreamIndex=$it") }
-            subtitleStreamIndex?.let { append("&SubtitleStreamIndex=$it") }
-            append("&api_key=")
-            append(accessToken)
-            if (!transcodeOption.isOriginal) {
-                startPositionMs?.let { position ->
-                    append("&StartTimeTicks=")
-                    append(position * 10_000)
-                }
-            }
-            val videoCodecOverride = if (transcodeOption.isOriginal) {
-                null
-            } else {
-                preferredVideoCodec.codecQueryValue
-            }
-            val videoProfileOverride = if (transcodeOption.isOriginal) {
-                null
-            } else {
-                preferredVideoCodec.profile
-            }
-            val (audioCodecOverride, allowAudioStreamCopyOverride) = when {
-                transcodeOption.isOriginal -> null to null
-                preferredAudioCodec == PreferredAudioCodec.ORIGINAL -> null to true
-                else -> preferredAudioCodec.preferenceValue to false
-            }
-            transcodeOption.appendQueryParameters(
-                this,
-                videoCodecOverride = videoCodecOverride,
-                audioCodecOverride = audioCodecOverride,
-                videoCodecProfileOverride = videoProfileOverride,
-                allowAudioStreamCopyOverride = allowAudioStreamCopyOverride,
+        userId: String? = savedUserId,
+    ): NetworkResult<PlaybackStreamInfo> {
+        if (transcodeOption.isOriginal) {
+            val url = buildDirectStreamUrl(
+                serverUrl = serverUrl,
+                accessToken = accessToken,
+                mediaItem = mediaItem,
+                mediaSourceId = mediaSourceId,
+                container = container,
+                audioStreamIndex = audioStreamIndex,
+                subtitleStreamIndex = subtitleStreamIndex,
+                isStaticStream = transcodeOption.isStaticStream
             )
+            return NetworkResult.Success(PlaybackStreamInfo(url = url))
         }
+
+        val resolvedUserId = userId
+            ?: return NetworkResult.Error("Missing user identifier for transcoding")
+
+        val videoCodecOverride = preferredVideoCodec.codecQueryValue
+        val videoProfileOverride = preferredVideoCodec.profile
+        val (audioCodecOverride, allowAudioStreamCopyOverride) = when (preferredAudioCodec) {
+            PreferredAudioCodec.ORIGINAL -> null to true
+            else -> preferredAudioCodec.preferenceValue to false
+        }
+
+        val parameters: TranscodeRequestParameters = transcodeOption.resolveParameters(
+            videoCodecOverride = videoCodecOverride,
+            audioCodecOverride = audioCodecOverride,
+            videoCodecProfileOverride = videoProfileOverride,
+            allowAudioStreamCopyOverride = allowAudioStreamCopyOverride,
+        )
+
+        val startTicks = startPositionMs?.takeIf { it > 0 }?.let { it * 10_000 }
+        val targetBitrate = parameters.videoBitrate
+            ?: parameters.maxBitrate
+
+        return libraryRepository.requestTranscodingUrl(
+            itemId = mediaItem.id,
+            userId = resolvedUserId,
+            accessToken = accessToken,
+            mediaSourceId = mediaSourceId,
+            audioStreamIndex = audioStreamIndex,
+            subtitleStreamIndex = subtitleStreamIndex,
+            startTimeTicks = startTicks,
+            maxStreamingBitrate = targetBitrate,
+            parameters = parameters,
+        )
     }
 
     private fun updateStartTimeTicks(currentUrl: String, positionMs: Long): String {
@@ -838,6 +903,40 @@ class VideoPlaybackViewModel @Inject constructor(
         }.getOrElse { currentUrl }
     }
 
+
+    private fun buildDirectStreamUrl(
+        serverUrl: String,
+        accessToken: String,
+        mediaItem: MediaItem,
+        mediaSourceId: String,
+        container: String = "mkv",
+        audioStreamIndex: Int? = null,
+        subtitleStreamIndex: Int? = null,
+        isStaticStream: Boolean = true,
+    ): String {
+        return buildString {
+            append(serverUrl.removeSuffix("/"))
+            append("/Videos/")
+            append(mediaItem.id)
+            append("/stream")
+            append("?static=")
+            append(isStaticStream)
+            append("&container=")
+            append(container)
+            append("&MediaSourceId=")
+            append(mediaSourceId)
+            if (!isStaticStream) {
+                audioStreamIndex?.let { append("&AudioStreamIndex=$it") }
+                subtitleStreamIndex?.let { append("&SubtitleStreamIndex=$it") }
+            }
+            append("&api_key=")
+            append(accessToken)
+            append("&EnableAutoStreamCopy=true")
+            append("&AllowVideoStreamCopy=true")
+            append("&AllowAudioStreamCopy=true")
+        }
+    }
+
     fun getExternalPlaybackUrl(
         mediaItem: MediaItem,
         serverUrl: String,
@@ -848,7 +947,7 @@ class VideoPlaybackViewModel @Inject constructor(
     ): String {
         val sourceId = mediaSourceId ?: mediaItem.mediaSources.firstOrNull()?.id ?: mediaItem.id
         val container = mediaItem.getStreamContainer(sourceId) ?: "mkv"
-        return buildVideoUrl(
+        return buildDirectStreamUrl(
             serverUrl = serverUrl,
             accessToken = accessToken,
             mediaItem = mediaItem,
@@ -936,11 +1035,7 @@ class VideoPlaybackViewModel @Inject constructor(
         val currentState = _state.value
         _state.value = currentState.copy(
             selectedPlaybackTranscodeOption = selectedTranscodeOption,
-            totalDurationSeconds = if (option.isOriginal) {
-                currentState.mediaItem?.runTimeTicks?.div(10_000_000L)
-            } else {
-                currentState.totalDurationSeconds
-            },
+            totalDurationSeconds = null,
             playbackOffsetMs = if (option.isOriginal) 0 else currentState.playbackOffsetMs
         )
         val mediaItem = currentState.mediaItem ?: return
@@ -958,6 +1053,7 @@ class VideoPlaybackViewModel @Inject constructor(
         serverUrl: String,
         accessToken: String
     ) {
+        val userId = savedUserId ?: return
         val container = mediaItem.getStreamContainer(currentMediaSourceId) ?: "mkv"
         val absolutePositionMs = if (selectedTranscodeOption.isOriginal) {
             _state.value.startPositionMs
@@ -967,30 +1063,54 @@ class VideoPlaybackViewModel @Inject constructor(
                 _state.value.lastSavedPosition * 1000
             )
         }
-        val videoUrl = buildVideoUrl(
-            serverUrl = serverUrl,
-            accessToken = accessToken,
-            mediaItem = mediaItem,
-            mediaSourceId = currentMediaSourceId
-                ?: mediaItem.mediaSources.firstOrNull()?.id
-                ?: mediaItem.id,
-            container = container,
-            audioStreamIndex = currentAudioStreamIndex,
-            subtitleStreamIndex = currentSubtitleStreamIndex,
-            transcodeOption = selectedTranscodeOption,
-            startPositionMs = if (selectedTranscodeOption.isOriginal) null else absolutePositionMs
-        )
-
-        _state.value = _state.value.copy(
-            videoUrl = videoUrl,
-            mediaSourceId = currentMediaSourceId,
-            audioStreamIndex = currentAudioStreamIndex,
-            subtitleStreamIndex = currentSubtitleStreamIndex,
-            selectedPlaybackTranscodeOption = selectedTranscodeOption
-        )
-
-        if (!selectedTranscodeOption.isOriginal) {
-            updateDurationFromApi(mediaItem)
+        rebuildJob?.cancel()
+        rebuildJob = viewModelScope.launch {
+            when (
+                val result = buildVideoUrl(
+                    serverUrl = serverUrl,
+                    accessToken = accessToken,
+                    mediaItem = mediaItem,
+                    mediaSourceId = currentMediaSourceId
+                        ?: mediaItem.mediaSources.firstOrNull()?.id
+                        ?: mediaItem.id,
+                    container = container,
+                    audioStreamIndex = currentAudioStreamIndex,
+                    subtitleStreamIndex = currentSubtitleStreamIndex,
+                    transcodeOption = selectedTranscodeOption,
+                    startPositionMs = if (selectedTranscodeOption.isOriginal) null else absolutePositionMs,
+                    userId = userId
+                )
+            ) {
+                is NetworkResult.Success -> {
+                    val streamInfo = result.data
+                    val videoUrl = streamInfo.url
+                    var updatedState = _state.value.copy(
+                        videoUrl = videoUrl,
+                        mpvVideoUrl = resolveMpvUrl(videoUrl),
+                        exoMediaItem = resolveExoMediaItem(videoUrl),
+                        cacheDataSourceFactory = exoCacheDataSourceFactory,
+                        playSessionId = streamInfo.playSessionId,
+                        mediaSourceId = currentMediaSourceId,
+                        audioStreamIndex = currentAudioStreamIndex,
+                        subtitleStreamIndex = currentSubtitleStreamIndex,
+                        selectedPlaybackTranscodeOption = selectedTranscodeOption,
+                        error = null
+                    )
+                    if (!selectedTranscodeOption.isOriginal) {
+                        updatedState = updatedState.copy(
+                            startPositionMs = 0,
+                            playbackOffsetMs = absolutePositionMs,
+                            totalDurationSeconds = null
+                        )
+                        updateDurationFromApi(mediaItem)
+                    }
+                    _state.value = updatedState
+                }
+                is NetworkResult.Error -> {
+                    _state.value = _state.value.copy(error = result.message)
+                }
+                else -> Unit
+            }
         }
     }
 
@@ -1010,10 +1130,8 @@ class VideoPlaybackViewModel @Inject constructor(
                     val refreshedTicks = result.data.runTimeTicks ?: mediaItem.runTimeTicks
                     val currentItem = _state.value.mediaItem ?: mediaItem
                     val updatedItem = currentItem.copy(runTimeTicks = refreshedTicks)
-                    val durationSeconds = refreshedTicks?.div(10_000_000L)
                     _state.value = _state.value.copy(
-                        mediaItem = updatedItem,
-                        totalDurationSeconds = durationSeconds
+                        mediaItem = updatedItem
                     )
                 }
 
@@ -1045,6 +1163,13 @@ class VideoPlaybackViewModel @Inject constructor(
         }
     }
 
+    fun applyChapterSegments(chapterSegments: List<Segment>) {
+        if (chapterSegments.isEmpty() || _state.value.segments.isNotEmpty()) {
+            return
+        }
+        _state.value = _state.value.copy(segments = chapterSegments)
+    }
+
     fun skipSegment() {
         val segment = _state.value.activeSegment ?: return
         val endMs = segment.endPositionTicks / 10_000
@@ -1056,44 +1181,77 @@ class VideoPlaybackViewModel @Inject constructor(
         val mediaItem = _state.value.mediaItem
         val serverUrl = savedServerUrl
         val accessToken = savedAccessToken
+        val userId = savedUserId
         val nextUpdateCount = _state.value.startPositionUpdateCount + 1
         return if (
             mediaItem != null &&
             !selectedTranscodeOption.isOriginal &&
             serverUrl != null &&
-            accessToken != null
+            accessToken != null &&
+            userId != null
         ) {
             val container = mediaItem.getStreamContainer(currentMediaSourceId) ?: "mkv"
             val existingUrl = _state.value.videoUrl
-            val videoUrl = if (existingUrl.isNullOrBlank()) {
-                buildVideoUrl(
-                    serverUrl = serverUrl,
-                    accessToken = accessToken,
-                    mediaItem = mediaItem,
-                    mediaSourceId = currentMediaSourceId
-                        ?: mediaItem.mediaSources.firstOrNull()?.id
-                        ?: mediaItem.id,
-                    container = container,
+            if (existingUrl.isNullOrBlank()) {
+                viewModelScope.launch {
+                    when (
+                        val result = buildVideoUrl(
+                            serverUrl = serverUrl,
+                            accessToken = accessToken,
+                            mediaItem = mediaItem,
+                            mediaSourceId = currentMediaSourceId
+                                ?: mediaItem.mediaSources.firstOrNull()?.id
+                                ?: mediaItem.id,
+                            container = container,
+                            audioStreamIndex = currentAudioStreamIndex,
+                            subtitleStreamIndex = currentSubtitleStreamIndex,
+                            transcodeOption = selectedTranscodeOption,
+                            startPositionMs = positionMs,
+                            userId = userId
+                        )
+                    ) {
+                        is NetworkResult.Success -> {
+                            val streamInfo = result.data
+                            val videoUrl = streamInfo.url
+                            _state.value = _state.value.copy(
+                                videoUrl = videoUrl,
+                                mpvVideoUrl = resolveMpvUrl(videoUrl),
+                                exoMediaItem = resolveExoMediaItem(videoUrl),
+                                cacheDataSourceFactory = exoCacheDataSourceFactory,
+                                playSessionId = streamInfo.playSessionId,
+                                mediaSourceId = currentMediaSourceId,
+                                audioStreamIndex = currentAudioStreamIndex,
+                                subtitleStreamIndex = currentSubtitleStreamIndex,
+                                startPositionMs = 0,
+                                playbackOffsetMs = positionMs,
+                                startPositionUpdateCount = nextUpdateCount,
+                                lastSavedPosition = positionMs / 1000,
+                                error = null
+                            )
+                        }
+                        is NetworkResult.Error -> {
+                            _state.value = _state.value.copy(error = result.message)
+                        }
+                        else -> Unit
+                    }
+                }
+            } else {
+                val videoUrl = updateStartTimeTicks(existingUrl, positionMs)
+                _state.value = _state.value.copy(
+                    videoUrl = videoUrl,
+                    mpvVideoUrl = resolveMpvUrl(videoUrl),
+                    exoMediaItem = resolveExoMediaItem(videoUrl),
+                    cacheDataSourceFactory = exoCacheDataSourceFactory,
+                    mediaSourceId = currentMediaSourceId,
                     audioStreamIndex = currentAudioStreamIndex,
                     subtitleStreamIndex = currentSubtitleStreamIndex,
-                    transcodeOption = selectedTranscodeOption,
-                    startPositionMs = positionMs
+                    startPositionMs = 0,
+                    playbackOffsetMs = positionMs,
+                    startPositionUpdateCount = nextUpdateCount,
+                    lastSavedPosition = positionMs / 1000,
+                    error = null
                 )
-            } else {
-                updateStartTimeTicks(existingUrl, positionMs)
             }
-            _state.value = _state.value.copy(
-                videoUrl = videoUrl,
-                exoMediaItem = null,
-                cacheDataSourceFactory = null,
-                mediaSourceId = currentMediaSourceId,
-                audioStreamIndex = currentAudioStreamIndex,
-                subtitleStreamIndex = currentSubtitleStreamIndex,
-                startPositionMs = 0,
-                playbackOffsetMs = positionMs,
-                startPositionUpdateCount = nextUpdateCount,
-                lastSavedPosition = positionMs / 1000
-            )
             true
         } else {
             _state.value = _state.value.copy(
@@ -1117,16 +1275,18 @@ class VideoPlaybackViewModel @Inject constructor(
                 val positionTicks = positionSeconds * 10_000_000
                 mediaItemDao.updatePlaybackPosition(mediaId, userId, positionTicks)
                 preferencesManager.savePlaybackPosition(mediaId, positionTicks)
-                val isOnline = isConnected.value
+                val isOnline = !serverConnectionManager.state.value.isOffline
+                val playSessionId = _state.value.playSessionId
                 val result = if (isOnline) {
                     libraryRepository.reportPlaybackProgress(
                         mediaId = mediaId,
                         userId = userId,
                         accessToken = accessToken,
-                        positionTicks = positionTicks
+                        positionTicks = positionTicks,
+                        playSessionId = playSessionId,
                     )
                 } else {
-                    NetworkResult.Error("No network connection")
+                    NetworkResult.Error("Server unreachable")
                 }
                 val download = downloadDao.getDownloadByMediaId(mediaId)
                 if (download != null) {
@@ -1173,7 +1333,13 @@ class VideoPlaybackViewModel @Inject constructor(
     fun reportPlaybackStart(mediaId: String, userId: String, accessToken: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                libraryRepository.reportPlaybackStart(mediaId, userId, accessToken)
+                val playSessionId = _state.value.playSessionId
+                libraryRepository.reportPlaybackStart(
+                    mediaId = mediaId,
+                    userId = userId,
+                    accessToken = accessToken,
+                    playSessionId = playSessionId,
+                )
                 _state.value = _state.value.copy(playbackStartReported = true)
             } catch (e: Exception) {
                 println("Error reporting playback start: ${e.message}")
@@ -1200,12 +1366,14 @@ class VideoPlaybackViewModel @Inject constructor(
                     mediaItemDao.updatePlaybackPosition(mediaId, userId, finalTicks)
                     preferencesManager.savePlaybackPosition(mediaId, finalTicks)
                 }
-
                 val result = libraryRepository.reportPlaybackStop(
                     mediaId = mediaId,
                     userId = userId,
                     accessToken = accessToken,
-                    positionTicks = finalTicks
+                    positionTicks = finalTicks,
+                    playSessionId = _state.value.playSessionId,
+                    mediaSourceId = _state.value.mediaSourceId
+                        ?: _state.value.playbackOptions.selectedMediaSource?.id
                 )
 
                 val download = downloadDao.getDownloadByMediaId(mediaId)
@@ -1224,7 +1392,10 @@ class VideoPlaybackViewModel @Inject constructor(
                     }
                 }
 
-                _state.value = _state.value.copy(playbackStopReported = true)
+                _state.value = _state.value.copy(
+                    playbackStopReported = true,
+                    playSessionId = null,
+                )
             } catch (e: Exception) {
                 println("Error reporting playback stop: ${e.message}")
             }
@@ -1253,8 +1424,11 @@ class VideoPlaybackViewModel @Inject constructor(
 
     fun reset() {
         _state.value = VideoPlaybackState()
+        lastMediaItemId = null
         currentMediaSourceId = null
         currentAudioStreamIndex = null
         currentSubtitleStreamIndex = null
+        rebuildJob?.cancel()
+        rebuildJob = null
     }
 }

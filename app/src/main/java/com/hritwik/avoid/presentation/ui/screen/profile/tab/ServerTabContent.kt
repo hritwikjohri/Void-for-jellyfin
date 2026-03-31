@@ -130,14 +130,10 @@ fun ServerTabContent(
         item {
             SettingItem(
                 icon = Icons.Default.Dashboard,
-                title = "Connection Dashboard",
-                subtitle = if (isOffline) "Available when online" else "View running services",
+                title = "Connection Settings",
+                subtitle = "Manage connection priorities and URLs",
                 onClick = {
-                    if (serverActionsEnabled) {
-                        onConnectionDashboard()
-                    } else {
-                        Toast.makeText(context, offlineMessage, Toast.LENGTH_SHORT).show()
-                    }
+                    onConnectionDashboard()
                 }
             )
         }

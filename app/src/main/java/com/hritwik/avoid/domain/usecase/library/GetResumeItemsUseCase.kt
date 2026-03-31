@@ -15,14 +15,18 @@ class GetResumeItemsUseCase @Inject constructor(
     data class Params(
         val userId: String,
         val accessToken: String,
-        val limit: Int = 20
+        val limit: Int = 20,
+        val mediaTypes: String? = null,
+        val includeItemTypes: String? = null
     )
 
     override suspend fun execute(parameters: Params): NetworkResult<List<MediaItem>> {
         return libraryRepository.getResumeItems(
             userId = parameters.userId,
             accessToken = parameters.accessToken,
-            limit = parameters.limit
+            limit = parameters.limit,
+            mediaTypes = parameters.mediaTypes,
+            includeItemTypes = parameters.includeItemTypes
         )
     }
 }

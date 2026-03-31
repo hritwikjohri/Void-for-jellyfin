@@ -20,12 +20,12 @@ import com.hritwik.avoid.domain.model.library.MediaItem
 import com.hritwik.avoid.domain.model.library.UserData
 import com.hritwik.avoid.domain.repository.SearchRepository
 import com.hritwik.avoid.utils.constants.ApiConstants
+import com.hritwik.avoid.utils.extensions.extractTvdbId
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
 import retrofit2.Retrofit
 import javax.inject.Inject
 import javax.inject.Singleton
-import com.hritwik.avoid.utils.helpers.NetworkMonitor
 import java.net.URI
 
 @Singleton
@@ -34,7 +34,6 @@ class SearchRepositoryImpl @Inject constructor(
     private val preferencesManager: PreferencesManager,
     private val playbackMapper: PlaybackMapper,
     private val searchResultDao: SearchResultDao,
-    private val networkMonitor: NetworkMonitor,
     @ApplicationContext private val context: Context,
     private val serverConnectionManager: ServerConnectionManager,
     priorityDispatcher: PriorityDispatcher
@@ -79,11 +78,11 @@ class SearchRepositoryImpl @Inject constructor(
         )
         val filtersKey = filterMap.toSortedMap().toString()
         val cached = searchResultDao.getSearchResult(searchTerm, filtersKey)
-        if (!networkMonitor.isConnected.value) {
+        if (serverConnectionManager.state.value.isOffline) {
             return if (cached != null) {
                 NetworkResult.Success(cached.results.map { it.toDomain() })
             } else {
-                NetworkResult.Error<List<MediaItem>>(AppError.Network("No network connection"))
+                NetworkResult.Error<List<MediaItem>>(AppError.Network("Server unreachable"))
             }
         }
 
@@ -138,11 +137,11 @@ class SearchRepositoryImpl @Inject constructor(
         }
         val filtersKey = filterMap.toSortedMap().toString()
         val cached = searchResultDao.getSearchResult("", filtersKey)
-        if (!networkMonitor.isConnected.value) {
+        if (serverConnectionManager.state.value.isOffline) {
             return if (cached != null) {
                 NetworkResult.Success(cached.results.map { it.toDomain() })
             } else {
-                NetworkResult.Error<List<MediaItem>>(AppError.Network("No network connection"))
+                NetworkResult.Error<List<MediaItem>>(AppError.Network("Server unreachable"))
             }
         }
 
@@ -183,32 +182,6 @@ class SearchRepositoryImpl @Inject constructor(
         }
 
         return result
-    }
-
-    override suspend fun getSearchSuggestions(
-        userId: String,
-        accessToken: String,
-        query: String,
-        limit: Int
-    ): NetworkResult<List<String>> {
-        if (!networkMonitor.isConnected.value) {
-            return NetworkResult.Error<List<String>>(AppError.Network("No network connection"))
-        }
-
-        val serverUrl = getServerUrl()
-        return safeApiCall(serverUrl) {
-            val apiService = createApiService(serverUrl)
-
-            val authHeader = JellyfinApiService.createAuthHeader(deviceId, token = accessToken)
-            val response = apiService.getSearchSuggestions(
-                userId = userId,
-                searchTerm = query,
-                limit = limit,
-                authorization = authHeader
-            )
-
-            response.searchHints.mapNotNull { it.name }
-        }
     }
 
     override suspend fun invalidateSearchResults(query: String, filters: Map<String, String>) {
@@ -260,6 +233,7 @@ class SearchRepositoryImpl @Inject constructor(
             runTimeTicks = runTimeTicks,
             primaryImageTag = primaryImageTag,
             thumbImageTag = thumbImageTag,
+            tvdbId = tvdbId,
             backdropImageTags = backdropImageTags,
             genres = genres,
             isFolder = isFolder,
@@ -306,7 +280,8 @@ class SearchRepositoryImpl @Inject constructor(
             seasonName = dto.seasonName,
             seasonPrimaryImageTag = dto.seasonPrimaryImageTag,
             parentIndexNumber = dto.parentIndexNumber,
-            indexNumber = dto.indexNumber
+            indexNumber = dto.indexNumber,
+            tvdbId = dto.providerIds.extractTvdbId()
         )
     }
 

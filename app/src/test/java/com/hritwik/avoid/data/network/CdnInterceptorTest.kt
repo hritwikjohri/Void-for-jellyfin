@@ -18,10 +18,58 @@ import java.util.concurrent.TimeUnit
 class CdnInterceptorTest {
 
     @Test
-    fun `request is redirected to cdn`() {
+    fun `media request is redirected to cdn`() {
         val interceptor = CdnInterceptor()
         val request = Request.Builder()
             .url("https://origin.example.com/image.jpg")
+            .build()
+        val chain = FakeChain(request)
+
+        interceptor.intercept(chain)
+        assertEquals(AppConstants.CDN_BASE_URL.toHttpUrl().host, chain.request().url.host)
+    }
+
+    @Test
+    fun `stream request stays on origin`() {
+        val interceptor = CdnInterceptor()
+        val request = Request.Builder()
+            .url("https://origin.example.com/Videos/12345/stream?MediaSourceId=12345&Static=true")
+            .build()
+        val chain = FakeChain(request)
+
+        interceptor.intercept(chain)
+        assertEquals("origin.example.com", chain.request().url.host)
+    }
+
+    @Test
+    fun `stream request with lowercase static query stays on origin`() {
+        val interceptor = CdnInterceptor()
+        val request = Request.Builder()
+            .url("https://origin.example.com/Videos/98765/stream?mediaSourceId=98765&static=true")
+            .build()
+        val chain = FakeChain(request)
+
+        interceptor.intercept(chain)
+        assertEquals("origin.example.com", chain.request().url.host)
+    }
+
+    @Test
+    fun `stream mp4 request stays on origin`() {
+        val interceptor = CdnInterceptor()
+        val request = Request.Builder()
+            .url("https://origin.example.com/videos/54321/stream.mp4?Static=true")
+            .build()
+        val chain = FakeChain(request)
+
+        interceptor.intercept(chain)
+        assertEquals("origin.example.com", chain.request().url.host)
+    }
+
+    @Test
+    fun `downloadable media asset is redirected to cdn`() {
+        val interceptor = CdnInterceptor()
+        val request = Request.Builder()
+            .url("https://origin.example.com/videos/downloads/trailer.mp4")
             .build()
         val chain = FakeChain(request)
 

@@ -11,6 +11,7 @@ import com.hritwik.avoid.data.download.DownloadServiceManager
 import com.hritwik.avoid.domain.model.download.DownloadRequest
 import com.hritwik.avoid.domain.model.library.MediaItem
 import com.hritwik.avoid.data.local.database.dao.DownloadDao
+import com.hritwik.avoid.data.local.database.entities.DownloadEntity
 import com.hritwik.avoid.utils.helpers.normalizeUuid
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -21,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.reflect.KClass
@@ -110,8 +112,8 @@ class ServiceManager @Inject constructor(
     suspend fun getDownloadedFilePath(id: String): String? {
         return DownloadService.getDownloadedFilePath(context, id)
             ?: withContext(Dispatchers.IO) {
-                downloadDao.getDownloadByMediaSourceId(id)?.filePath
-                    ?: downloadDao.getDownloadByMediaId(normalizeUuid(id))?.filePath
+                downloadDao.getDownloadByMediaSourceId(id).playableFilePathOrNull()
+                    ?: downloadDao.getDownloadByMediaId(normalizeUuid(id)).playableFilePathOrNull()
             }
     }
 
@@ -120,6 +122,13 @@ class ServiceManager @Inject constructor(
     }
 
     val downloads get() = DownloadService.downloads
+}
+
+private fun DownloadEntity?.playableFilePathOrNull(): String? {
+    val entity = this ?: return null
+    if (entity.status != DownloadService.DownloadStatus.COMPLETED.name) return null
+    val path = entity.filePath?.takeIf { it.isNotBlank() } ?: return null
+    return path.takeIf { File(it).isFile }
 }
 
 @EntryPoint

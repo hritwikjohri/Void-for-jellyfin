@@ -20,7 +20,6 @@ interface JellyseerApiService {
 
     @GET("search")
     suspend fun search(
-        @Header(API_KEY_HEADER) apiKey: String? = null,
         @Header(COOKIE_HEADER) cookie: String? = null,
         @Query("query") query: String,
         @Query("page") page: Int? = null,
@@ -29,7 +28,6 @@ interface JellyseerApiService {
 
     @GET("movie/{movieId}")
     suspend fun getMovieDetails(
-        @Header(API_KEY_HEADER) apiKey: String? = null,
         @Header(COOKIE_HEADER) cookie: String? = null,
         @Path("movieId") movieId: Long,
         @Query("language") language: String? = null
@@ -37,7 +35,6 @@ interface JellyseerApiService {
 
     @GET("tv/{tvId}")
     suspend fun getTvDetails(
-        @Header(API_KEY_HEADER) apiKey: String? = null,
         @Header(COOKIE_HEADER) cookie: String? = null,
         @Path("tvId") tvId: Long,
         @Query("language") language: String? = null
@@ -45,7 +42,6 @@ interface JellyseerApiService {
 
     @POST("request")
     suspend fun createRequest(
-        @Header(API_KEY_HEADER) apiKey: String? = null,
         @Header(COOKIE_HEADER) cookie: String? = null,
         @Body body: JellyseerCreateRequestDto
     ): JellyseerMediaRequestDto
@@ -61,7 +57,6 @@ interface JellyseerApiService {
     ): Response<JellyseerStatusResponseDto>
 
     companion object {
-        const val API_KEY_HEADER = "X-Api-Key"
         const val COOKIE_HEADER = "Cookie"
     }
 }

@@ -15,5 +15,8 @@ data class JellyseerDetailUiState(
     val disabledVideoQualities: Set<JellyseerVideoQuality> = emptySet(),
     val selectedVideoQuality: JellyseerVideoQuality = JellyseerVideoQuality.default,
     val exactTitleOptions: List<JellyseerSearchResult> = emptyList(),
-    val requireExactTitleSelection: Boolean = false
+    val requireExactTitleSelection: Boolean = false,
+    val showConfirmationDialog: Boolean = false,
+    val showSuccessDialog: Boolean = false,
+    val showErrorDialog: Boolean = false
 )

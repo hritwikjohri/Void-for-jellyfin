@@ -30,9 +30,11 @@ import androidx.core.content.ContextCompat
 import androidx.core.graphics.createBitmap
 import androidx.palette.graphics.Palette
 import coil.Coil
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import coil.size.Scale
+import okhttp3.Headers
 import com.hritwik.avoid.VoidApplication
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -47,6 +49,8 @@ fun AnimatedAmbientBackground(
     baseColors: List<Color> = getDefaultAmbientColors(),
     intensity: Float = 0.7f,
     animationSpeed: Float = 1.0f,
+    bypassCache: Boolean = false,
+    authToken: String? = null,
     content: @Composable () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -60,7 +64,9 @@ fun AnimatedAmbientBackground(
             imageUrl = imageUrl,
             drawableRes = drawableRes,
             baseColors = baseColors,
-            intensity = intensity
+            intensity = intensity,
+            bypassCache = bypassCache,
+            authToken = authToken
         ){
             content()
         }
@@ -71,7 +77,7 @@ fun AnimatedAmbientBackground(
         extractedColors = baseColors
         launch {
             val colors = when {
-                imageUrl != null -> extractColorsFromUrl(context, imageUrl)
+                imageUrl != null -> extractColorsFromUrl(context, imageUrl, bypassCache, authToken)
                 drawableRes != null -> extractColorsFromDrawable(context, drawableRes)
                 else -> baseColors
             }
@@ -186,24 +192,43 @@ fun AnimatedAmbientBackground(
 
 private suspend fun extractColorsFromUrl(
     context: Context,
-    imageUrl: String
+    imageUrl: String,
+    bypassCache: Boolean,
+    authToken: String?
 ): List<Color> = withContext(Dispatchers.IO) {
-    PaletteCache.get(imageUrl)?.let { return@withContext it }
+    if (!bypassCache) {
+        PaletteCache.get(imageUrl)?.let { return@withContext it }
+    }
 
     try {
         val imageLoader = Coil.imageLoader(context)
+        val memoryDiskPolicy = if (bypassCache) CachePolicy.DISABLED else CachePolicy.ENABLED
+        val headers = Headers.Builder().apply {
+            if (!authToken.isNullOrBlank()) {
+                add("X-Emby-Token", authToken)
+            }
+            if (bypassCache) {
+                add("Cache-Control", "no-cache, no-store")
+            }
+        }.build()
         val request = ImageRequest.Builder(context)
             .data(imageUrl)
+            .headers(headers)
             .allowHardware(false)
             .size(128)
             .scale(Scale.FIT)
+            .memoryCachePolicy(memoryDiskPolicy)
+            .diskCachePolicy(memoryDiskPolicy)
+            .networkCachePolicy(CachePolicy.ENABLED)
             .build()
 
         val result = imageLoader.execute(request)
         if (result is SuccessResult) {
             val bitmap = (result.drawable as? BitmapDrawable)?.bitmap
             val colors = bitmap?.let { extractPaletteColors(it) } ?: getDefaultAmbientColors()
-            PaletteCache.put(imageUrl, colors)
+            if (!bypassCache) {
+                PaletteCache.put(imageUrl, colors)
+            }
             colors
         } else {
             getDefaultAmbientColors()

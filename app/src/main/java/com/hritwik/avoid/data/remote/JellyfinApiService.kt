@@ -14,11 +14,14 @@ import com.hritwik.avoid.data.remote.dto.library.BaseItemDto
 import com.hritwik.avoid.data.remote.dto.library.LibraryResponse
 import com.hritwik.avoid.data.remote.dto.library.PersonDto
 import com.hritwik.avoid.data.remote.dto.library.UserDataDto
+import com.hritwik.avoid.data.remote.dto.playback.PlaybackInfoRequestDto
+import com.hritwik.avoid.data.remote.dto.playback.PlaybackInfoResponseDto
 import com.hritwik.avoid.data.remote.dto.playback.PlaybackProgressRequest
 import com.hritwik.avoid.data.remote.dto.playback.PlaybackStartRequest
 import com.hritwik.avoid.data.remote.dto.playback.PlaybackStopRequest
 import com.hritwik.avoid.data.remote.dto.playback.SegmentResponse
-import com.hritwik.avoid.data.remote.dto.search.SearchHintsResponse
+import com.hritwik.avoid.data.remote.dto.activity.ActivityLogEntryQueryResult
+import com.hritwik.avoid.utils.constants.ApiConstants
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -45,6 +48,14 @@ interface JellyfinApiService {
     suspend fun logout(
         @Header("X-Emby-Authorization") authorization: String
     )
+
+    @POST("Items/{itemId}/PlaybackInfo")
+    suspend fun getPlaybackInfo(
+        @Path("itemId") itemId: String,
+        @Query("UserId") userId: String,
+        @Body request: PlaybackInfoRequestDto,
+        @Header("X-Emby-Authorization") authorization: String
+    ): PlaybackInfoResponseDto
 
     @GET("Users/Me")
     suspend fun getCurrentUser(
@@ -95,7 +106,7 @@ interface JellyfinApiService {
         @Query("SortBy") sortBy: String = "SortName",
         @Query("SortOrder") sortOrder: String = "Ascending",
         @Query("Genres") genres: String? = null,
-        @Query("Fields") fields: String = "BasicSyncInfo,CanDelete,PrimaryImageAspectRatio,ProductionYear,Genres,Studios,People,Overview,Taglines,MediaSources,MediaStreams,ParentIndexNumber,IndexNumber,UserData",
+        @Query("Fields") fields: String = ApiConstants.FIELDS_STANDARD, // Optimized: reduced from 13 to 7 fields
         @Query("EnableImageTypes") enableImageTypes: String? = null,
         @Header("X-Emby-Authorization") authorization: String
     ): LibraryResponse
@@ -108,11 +119,26 @@ interface JellyfinApiService {
         @Header("X-Emby-Authorization") authorization: String
     ): List<PersonDto>
 
+    @GET("Items")
+    suspend fun getItemsByPerson(
+        @Query("UserId") userId: String,
+        @Query("PersonIds") personIds: String,
+        @Query("Recursive") recursive: Boolean = true,
+        @Query("IncludeItemTypes") includeItemTypes: String = "Movie,Series",
+        @Query("SortBy") sortBy: String = "ProductionYear,SortName",
+        @Query("SortOrder") sortOrder: String = "Descending",
+        @Query("Fields") fields: String = ApiConstants.FIELDS_STANDARD, // Optimized: reduced from 13 to 7 fields
+        @Query("Limit") limit: Int = 100,
+        @Header("X-Emby-Authorization") authorization: String
+    ): LibraryResponse
+
     @GET("Users/{userId}/Items/Latest")
     suspend fun getLatestItems(
         @Path("userId") userId: String,
         @Query("Limit") limit: Int = 20,
-        @Query("Fields") fields: String = "BasicSyncInfo,CanDelete,PrimaryImageAspectRatio,ProductionYear,Genres,Studios,People,Overview,Taglines,MediaSources,MediaStreams,ParentIndexNumber,IndexNumber,UserData",
+        @Query("Fields") fields: String = ApiConstants.FIELDS_MINIMAL, // Optimized: reduced from 13 to 3 fields
+        @Query("EnableImageTypes") enableImageTypes: String = ApiConstants.IMAGE_TYPE_PRIMARY, // Primary only for lighter payloads
+        @Query("ParentId") parentId: String? = null, // Optional: filter by library
         @Header("X-Emby-Authorization") authorization: String
     ): List<BaseItemDto>
 
@@ -120,8 +146,10 @@ interface JellyfinApiService {
     suspend fun getResumeItems(
         @Path("userId") userId: String,
         @Query("Limit") limit: Int = 20,
-        @Query("Fields") fields: String = "BasicSyncInfo,CanDelete,PrimaryImageAspectRatio,ProductionYear,Genres,Studios,People,Overview,Taglines,MediaSources,MediaStreams,ParentIndexNumber,IndexNumber,UserData",
-        @Query("EnableImageTypes") enableImageTypes: String? = null,
+        @Query("Fields") fields: String = ApiConstants.FIELDS_RESUME, // Enhanced fields for better resume items display
+        @Query("EnableImageTypes") enableImageTypes: String = ApiConstants.IMAGE_TYPES_RESUME, // Primary + Backdrop for correct episode art
+        @Query("MediaTypes") mediaTypes: String? = null,
+        @Query("IncludeItemTypes") includeItemTypes: String? = null,
         @Header("X-Emby-Authorization") authorization: String
     ): LibraryResponse
 
@@ -129,8 +157,11 @@ interface JellyfinApiService {
     suspend fun getNextUpItems(
         @Query("UserId") userId: String,
         @Query("Limit") limit: Int = 20,
-        @Query("Fields") fields: String = "BasicSyncInfo,CanDelete,PrimaryImageAspectRatio,ProductionYear,Genres,Studios,People,Overview,Taglines,MediaSources,MediaStreams,ParentIndexNumber,IndexNumber,UserData",
-        @Query("EnableImageTypes") enableImageTypes: String? = null,
+        @Query("Fields") fields: String = ApiConstants.FIELDS_NEXT_UP, // Enhanced fields for episode display
+        @Query("EnableImageTypes") enableImageTypes: String = ApiConstants.IMAGE_TYPES_NEXT_UP, // Thumb only to reduce payload
+        @Query("SeriesId") seriesId: String? = null, // Optional: filter by specific series
+        @Query("DisableFirstEpisode") disableFirstEpisode: Boolean? = null, // Optional: exclude first episodes
+        @Query("EnableTotalRecordCount") enableTotalRecordCount: Boolean = false, // Performance optimization
         @Header("X-Emby-Authorization") authorization: String
     ): LibraryResponse
 
@@ -187,7 +218,7 @@ interface JellyfinApiService {
         @Query("HasSubtitles") hasSubtitles: Boolean? = null,
         @Query("HasParentalRating") hasParentalRating: Boolean? = null,
         @Query("EnableImageTypes") enableImageTypes: String? = null,
-        @Query("Fields") fields: String = "BasicSyncInfo,CanDelete,PrimaryImageAspectRatio,ProductionYear,Genres,Studios,People,Overview,Taglines,MediaSources,MediaStreams,ParentIndexNumber,IndexNumber,UserData",
+        @Query("Fields") fields: String = ApiConstants.FIELDS_STANDARD, // Optimized: reduced from 13 to 7 fields
         @Header("X-Emby-Authorization") authorization: String
     ): LibraryResponse
 
@@ -199,23 +230,15 @@ interface JellyfinApiService {
         @Query("Recursive") recursive: Boolean = true,
         @Query("StartIndex") startIndex: Int = 0,
         @Query("Limit") limit: Int = 50,
-        @Query("Fields") fields: String = "BasicSyncInfo,CanDelete,PrimaryImageAspectRatio,ProductionYear,Genres,Studios,People,Overview,Taglines,MediaSources,MediaStreams,ParentIndexNumber,UserData",
+        @Query("Fields") fields: String = ApiConstants.FIELDS_MINIMAL, // Optimized: reduced from 13 to 3 fields
         @Header("X-Emby-Authorization") authorization: String
     ): LibraryResponse
-
-    @GET("Search/Hints")
-    suspend fun getSearchSuggestions(
-        @Query("UserId") userId: String,
-        @Query("SearchTerm") searchTerm: String,
-        @Query("Limit") limit: Int = 10,
-        @Header("X-Emby-Authorization") authorization: String
-    ): SearchHintsResponse
 
     @GET("Users/{userId}/Items/{itemId}")
     suspend fun getItemById(
         @Path("userId") userId: String,
         @Path("itemId") itemId: String,
-        @Query("Fields") fields: String = "BasicSyncInfo,CanDelete,PrimaryImageAspectRatio,ProductionYear,Genres,Studios,People,Overview,Taglines,MediaSources,MediaStreams,ParentIndexNumber,IndexNumber,UserData",
+        @Query("Fields") fields: String = ApiConstants.FIELDS_FULL, // Keep full fields for detail view
         @Header("X-Emby-Authorization") authorization: String
     ): BaseItemDto
 
@@ -299,10 +322,32 @@ interface JellyfinApiService {
         @Header("X-Emby-Authorization") authorization: String
     )
 
+    @POST("PlayingItems/{itemId}")
+    suspend fun reportLegacyPlaybackStart(
+        @Path("itemId") itemId: String,
+        @Query("UserId") userId: String? = null,
+        @Query("mediaSourceId") mediaSourceId: String? = null,
+        @Query("canSeek") canSeek: Boolean? = null,
+        @Query("playSessionId") playSessionId: String? = null,
+        @Query("positionTicks") positionTicks: Long? = null,
+        @Header("X-Emby-Authorization") authorization: String,
+    )
+
     @POST("Sessions/Playing")
     suspend fun reportPlaybackStart(
         @Body playbackInfo: PlaybackStartRequest,
         @Header("X-Emby-Authorization") authorization: String
+    )
+
+    @POST("PlayingItems/{itemId}/Progress")
+    suspend fun reportLegacyPlaybackProgress(
+        @Path("itemId") itemId: String,
+        @Query("UserId") userId: String? = null,
+        @Query("mediaSourceId") mediaSourceId: String? = null,
+        @Query("positionTicks") positionTicks: Long? = null,
+        @Query("playSessionId") playSessionId: String? = null,
+        @Query("isPaused") isPaused: Boolean? = null,
+        @Header("X-Emby-Authorization") authorization: String,
     )
 
     @POST("Sessions/Playing/Stopped")
@@ -310,6 +355,25 @@ interface JellyfinApiService {
         @Body stopInfo: PlaybackStopRequest,
         @Header("X-Emby-Authorization") authorization: String
     )
+
+    @DELETE("PlayingItems/{itemId}")
+    suspend fun reportLegacyPlaybackStop(
+        @Path("itemId") itemId: String,
+        @Query("UserId") userId: String? = null,
+        @Query("mediaSourceId") mediaSourceId: String? = null,
+        @Query("positionTicks") positionTicks: Long? = null,
+        @Query("playSessionId") playSessionId: String? = null,
+        @Header("X-Emby-Authorization") authorization: String,
+    )
+
+    @GET("System/ActivityLog/Entries")
+    suspend fun getActivityLogEntries(
+        @Query("startIndex") startIndex: Int = 0,
+        @Query("limit") limit: Int = 100,
+        @Query("minDate") minDate: String? = null,
+        @Query("hasUserId") hasUserId: Boolean? = null,
+        @Header("X-Emby-Authorization") authorization: String
+    ): ActivityLogEntryQueryResult
 
     companion object {
         fun createAuthHeader(

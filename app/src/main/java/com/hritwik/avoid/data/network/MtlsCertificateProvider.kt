@@ -24,6 +24,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 @Singleton
 class MtlsCertificateProvider @Inject constructor(
@@ -39,6 +41,8 @@ class MtlsCertificateProvider @Inject constructor(
 
     @Volatile
     private var activeKeyManager: X509ExtendedKeyManager? = null
+
+    private val keyManagerMutex = Mutex()
 
     private val delegatingKeyManager = DelegatingMtlsKeyManager { activeKeyManager }
 
@@ -93,10 +97,41 @@ class MtlsCertificateProvider @Inject constructor(
         certificateName: String?,
         password: String?,
     ) {
-        activeKeyManager = if (!enabled || certificateName.isNullOrBlank()) {
+        val updatedManager = if (!enabled || certificateName.isNullOrBlank()) {
             null
         } else {
             loadKeyManager(password.orEmpty())
+        }
+        keyManagerMutex.withLock {
+            activeKeyManager = updatedManager
+        }
+    }
+
+    suspend fun <T> withTemporaryPassword(
+        password: String,
+        block: suspend () -> T,
+    ): T {
+        val isEnabled = preferencesManager.isMtlsEnabled().first()
+        val certificateName = preferencesManager.getMtlsCertificateName().first()
+        if (!isEnabled || certificateName.isNullOrBlank()) {
+            return block()
+        }
+
+        val temporaryManager = loadKeyManager(password)
+            ?: throw IllegalStateException("Unable to load mTLS certificate with provided password")
+
+        val previousManager = keyManagerMutex.withLock {
+            val current = activeKeyManager
+            activeKeyManager = temporaryManager
+            current
+        }
+
+        return try {
+            block()
+        } finally {
+            keyManagerMutex.withLock {
+                activeKeyManager = previousManager
+            }
         }
     }
 

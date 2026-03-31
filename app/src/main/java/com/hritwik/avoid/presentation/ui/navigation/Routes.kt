@@ -13,7 +13,6 @@ object Routes {
     const val SEARCH = "search"
     const val FAVORITES = "favorites"
     const val DOWNLOADS = "downloads"
-    const val EDIT_PROFILE = "edit_profile"
     const val CHANGE_PASSWORD = "change_password"
     const val CONNECTION_DASHBOARD = "connection_dashboard"
     const val TV_LOGIN = "tv_login"
@@ -27,6 +26,7 @@ object Routes {
     const val TV_SERIES_DETAIL = "tv_series_detail/{seriesId}"
     const val SEASON_DETAIL = "season_detail/{seasonId}/{seasonName}?initialEpisodeId={initialEpisodeId}"
     const val EPISODE_DETAIL = "episode_detail/{episodeId}"
+    const val PERSON_DETAIL = "person_detail/{personId}"
     const val JELLYSEER_DETAIL = "jellyseer_detail/{mediaType}/{mediaId}"
     const val VIDEO_PLAYER = "video_player/{mediaId}?mediaSourceId={mediaSourceId}&audioStreamIndex={audioStreamIndex}&subtitleStreamIndex={subtitleStreamIndex}&startPosition={startPosition}"
     fun mediaDetail(mediaId: String): String = "media_detail/$mediaId"
@@ -76,5 +76,9 @@ object Routes {
 
     fun jellyseerDetail(mediaType: String, mediaId: Long): String {
         return "jellyseer_detail/$mediaType/$mediaId"
+    }
+
+    fun personDetail(personId: String): String {
+        return "person_detail/$personId"
     }
 }

@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.Flow
 interface MediaItemDao {
 
     companion object {
-        private const val MEDIA_ITEM_COLUMNS = "id, name, title, type, overview, year, communityRating, runTimeTicks, primaryImageTag, thumbImageTag, backdropImageTags, genres, isFolder, childCount, libraryId, userId, lastUpdated, isFavorite, playbackPositionTicks, playCount, played, lastPlayedDate, isWatchlist, pendingFavorite, pendingPlayed, pendingWatchlist, taglines"
+        private const val MEDIA_ITEM_COLUMNS = "id, name, title, type, overview, year, communityRating, runTimeTicks, primaryImageTag, thumbImageTag, tvdbId, backdropImageTags, genres, isFolder, childCount, libraryId, userId, lastUpdated, isFavorite, playbackPositionTicks, playCount, played, lastPlayedDate, isWatchlist, pendingFavorite, pendingPlayed, pendingWatchlist, taglines"
     }
 
     @Query("SELECT $MEDIA_ITEM_COLUMNS FROM media_items WHERE userId = :userId ORDER BY lastUpdated DESC")

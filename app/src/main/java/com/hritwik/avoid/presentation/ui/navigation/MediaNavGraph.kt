@@ -5,6 +5,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -18,6 +19,7 @@ import com.hritwik.avoid.presentation.ui.screen.downloads.DownloadsScreen
 import com.hritwik.avoid.presentation.ui.screen.library.LibraryScreen
 import com.hritwik.avoid.presentation.ui.screen.library.LibrarySection
 import com.hritwik.avoid.presentation.ui.screen.media.MediaDetailScreen
+import com.hritwik.avoid.presentation.ui.screen.person.PersonDetailScreen
 import com.hritwik.avoid.presentation.ui.screen.player.VideoPlayerScreen
 import com.hritwik.avoid.presentation.ui.screen.search.JellyseerDetailScreen
 import com.hritwik.avoid.presentation.ui.screen.search.Search
@@ -263,6 +265,12 @@ fun NavGraphBuilder.mediaGraph(
         MediaDetailScreen(
             mediaId = mediaId,
             onBackClick = { navController.navigateUp() },
+            onHomeClick = {
+                navController.navigate(Routes.HOME) {
+                    popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
+                    launchSingleTop = true
+                }
+            },
             onPlayClick = { playbackInfo ->
                 navController.navigate(
                     Routes.videoPlayer(
@@ -277,11 +285,17 @@ fun NavGraphBuilder.mediaGraph(
             onSimilarItemClick = { similarMediaId ->
                 navController.navigate(Routes.mediaDetail(similarMediaId))
             },
-            onSeasonClick = { seasonId, seasonName ->
+            onSeasonClick = { seasonId, _ ->
                 navController.navigate(Routes.mediaDetail(seasonId))
+            },
+            onSeriesClick = { seriesId ->
+                navController.navigate(Routes.mediaDetail(seriesId))
             },
             onEpisodeClick = { episode ->
                 navController.navigate(Routes.mediaDetail(episode.id))
+            },
+            onPersonClick = { personId ->
+                navController.navigate(Routes.personDetail(personId))
             },
             onDownloadClick = { mediaItem, request, mediaSourceId ->
                 authState.authSession?.let { session ->
@@ -307,6 +321,12 @@ fun NavGraphBuilder.mediaGraph(
         MediaDetailScreen(
             mediaId = movieId,
             onBackClick = { navController.navigateUp() },
+            onHomeClick = {
+                navController.navigate(Routes.HOME) {
+                    popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
+                    launchSingleTop = true
+                }
+            },
             onPlayClick = { playbackInfo ->
                 navController.navigate(
                     Routes.videoPlayer(
@@ -320,6 +340,12 @@ fun NavGraphBuilder.mediaGraph(
             },
             onSimilarItemClick = { similarMovieId ->
                 navController.navigate(Routes.mediaDetail(similarMovieId))
+            },
+            onSeriesClick = { seriesId ->
+                navController.navigate(Routes.mediaDetail(seriesId))
+            },
+            onPersonClick = { personId ->
+                navController.navigate(Routes.personDetail(personId))
             },
             onDownloadClick = { mediaItem, request, mediaSourceId ->
                 authState.authSession?.let { session ->
@@ -345,6 +371,12 @@ fun NavGraphBuilder.mediaGraph(
         MediaDetailScreen(
             mediaId = seriesId,
             onBackClick = { navController.navigateUp() },
+            onHomeClick = {
+                navController.navigate(Routes.HOME) {
+                    popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
+                    launchSingleTop = true
+                }
+            },
             onPlayClick = { playbackInfo ->
                 navController.navigate(
                     Routes.videoPlayer(
@@ -356,11 +388,17 @@ fun NavGraphBuilder.mediaGraph(
                     )
                 )
             },
-            onSeasonClick = { seasonId, seasonName ->
+            onSeasonClick = { seasonId, _ ->
                 navController.navigate(Routes.mediaDetail(seasonId))
+            },
+            onSeriesClick = { seriesId ->
+                navController.navigate(Routes.mediaDetail(seriesId))
             },
             onSimilarItemClick = { similarSeriesId ->
                 navController.navigate(Routes.mediaDetail(similarSeriesId))
+            },
+            onPersonClick = { personId ->
+                navController.navigate(Routes.personDetail(personId))
             },
             onDownloadClick = { mediaItem, request, mediaSourceId ->
                 authState.authSession?.let { session ->
@@ -399,6 +437,12 @@ fun NavGraphBuilder.mediaGraph(
             mediaId = seasonId,
             initialEpisodeId = initialEpisodeId,
             onBackClick = { navController.navigateUp() },
+            onHomeClick = {
+                navController.navigate(Routes.HOME) {
+                    popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
+                    launchSingleTop = true
+                }
+            },
             onPlayClick = { playbackInfo ->
                 navController.navigate(
                     Routes.videoPlayer(
@@ -413,8 +457,17 @@ fun NavGraphBuilder.mediaGraph(
             onSimilarItemClick = { similarItemId ->
                 navController.navigate(Routes.mediaDetail(similarItemId))
             },
+            onSeasonClick = { clickedSeasonId, seasonName ->
+                navController.navigate(Routes.seasonDetail(clickedSeasonId, seasonName))
+            },
+            onSeriesClick = { seriesId ->
+                navController.navigate(Routes.mediaDetail(seriesId))
+            },
             onEpisodeClick = { episode ->
                 navController.navigate(Routes.mediaDetail(episode.id))
+            },
+            onPersonClick = { personId ->
+                navController.navigate(Routes.personDetail(personId))
             },
             onDownloadClick = { mediaItem, request, mediaSourceId ->
                 authState.authSession?.let { session ->
@@ -440,6 +493,12 @@ fun NavGraphBuilder.mediaGraph(
         MediaDetailScreen(
             mediaId = episodeId,
             onBackClick = { navController.navigateUp() },
+            onHomeClick = {
+                navController.navigate(Routes.HOME) {
+                    popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
+                    launchSingleTop = true
+                }
+            },
             onPlayClick = { playbackInfo ->
                 navController.navigate(
                     Routes.videoPlayer(
@@ -454,6 +513,18 @@ fun NavGraphBuilder.mediaGraph(
             onSimilarItemClick = { similarItemId ->
                 navController.navigate(Routes.mediaDetail(similarItemId))
             },
+            onSeasonClick = { seasonId, _ ->
+                navController.navigate(Routes.mediaDetail(seasonId))
+            },
+            onSeriesClick = { seriesId ->
+                navController.navigate(Routes.mediaDetail(seriesId))
+            },
+            onEpisodeClick = { episode ->
+                navController.navigate(Routes.mediaDetail(episode.id))
+            },
+            onPersonClick = { personId ->
+                navController.navigate(Routes.personDetail(personId))
+            },
             onDownloadClick = { mediaItem, request, mediaSourceId ->
                 authState.authSession?.let { session ->
                     userDataViewModel.startDownload(
@@ -465,6 +536,19 @@ fun NavGraphBuilder.mediaGraph(
                         userId = session.userId.id
                     )
                 }
+            },
+            authViewModel = authViewModel
+        )
+    }
+
+    composable(Routes.PERSON_DETAIL) { backStackEntry ->
+        val personId = backStackEntry.arguments?.getString("personId") ?: ""
+
+        PersonDetailScreen(
+            personId = personId,
+            onBackClick = { navController.navigateUp() },
+            onMediaItemClick = { mediaItemId ->
+                navController.navigate(Routes.mediaDetail(mediaItemId))
             },
             authViewModel = authViewModel
         )
@@ -521,10 +605,13 @@ fun NavGraphBuilder.mediaGraph(
                 subtitleStreamIndex = subtitleStreamIndex,
                 startPositionMs = startPositionMs,
                 onBackClick = {
-                    navController.previousBackStackEntry?.savedStateHandle?.set(
-                        "refreshResumeItems",
-                        true
-                    )
+                    runCatching {
+                        navController.getBackStackEntry(Routes.HOME).savedStateHandle.apply {
+                            set("refreshResumeItems", true)
+                            set("refreshNextUp", true)
+                            set("refreshHome", true)
+                        }
+                    }
                     navController.popBackStack()
                 },
                 authViewModel = authViewModel

@@ -27,6 +27,7 @@ data class MediaItemEntity(
     val runTimeTicks: Long?,
     val primaryImageTag: String?,
     val thumbImageTag: String? = null,
+    val tvdbId: String? = null,
     val backdropImageTags: List<String>,
     val genres: List<String>,
     val isFolder: Boolean,

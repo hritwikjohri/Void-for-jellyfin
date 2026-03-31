@@ -6,12 +6,16 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.hritwik.avoid.presentation.ui.state.ThemeSongState
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -30,8 +34,16 @@ class ThemeSongController @Inject constructor(
     private var currentSongUrl: String? = null
     private var resumeOnForeground: Boolean = false
 
+    private val _isPlaying = MutableStateFlow(false)
+    val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
+
     init {
         ProcessLifecycleOwner.Companion.get().lifecycle.addObserver(this)
+        player.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                _isPlaying.value = isPlaying
+            }
+        })
     }
 
     fun playThemeSong(themeSong: ThemeSongState, force: Boolean = false) {
@@ -71,6 +83,18 @@ class ThemeSongController @Inject constructor(
             playThemeSong(ThemeSongState(currentSongId!!, currentSongUrl!!), force = true)
         }
         resumeOnForeground = false
+    }
+
+    fun togglePlayback() {
+        if (player.isPlaying) {
+            player.pause()
+        } else if (currentSongId != null && currentSongUrl != null) {
+            if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
+                player.setMediaItem(MediaItem.fromUri(currentSongUrl!!))
+                player.prepare()
+            }
+            player.playWhenReady = true
+        }
     }
 
     fun currentThemeSong(): ThemeSongState? {

@@ -153,7 +153,7 @@ private fun AppInfoCard() {
             title = "Smart Discovery & Library Browsing",
             items = listOf(
                 "Home: Continue Watching, Next Up, Movies, Shows, Recently Added",
-                "Search spans Jellyfin + Jellyseer with real-time suggestions & filters",
+                "Search spans Jellyfin + Jellyseer with filters",
                 "Rich cards and dynamic placeholders while content loads"
             )
         )
@@ -179,7 +179,7 @@ private fun AppInfoCard() {
         FeatureSection(
             title = "Jellyseer Request Integration",
             items = listOf(
-                "In-app Jellyseer console (base URL, login, API key fallback, sign-out)",
+                "In-app Jellyseer console (base URL, login, sign-out)",
                 "Success/error feedback and full request workflow without leaving Void"
             )
         )
@@ -187,7 +187,7 @@ private fun AppInfoCard() {
         FeatureSection(
             title = "Connectivity & Device Perks",
             items = listOf(
-                "Connection Dashboard: manage endpoints, reorder/cleanup, health notifications",
+                "Connection Settings: manage endpoints, reorder/cleanup, health notifications",
                 "Quick actions: change password, favorites, downloads, Void TV login",
                 "Offline guards for pairing; hybrid network support"
             )

@@ -45,8 +45,8 @@ fun JellyfinNavigation(
     var navigationState by remember { mutableStateOf<NavigationState>(NavigationState.Loading) }
 
     val hasServerConfiguration = authState.server != null ||
-        authState.connectionMethods.isNotEmpty() ||
-        !authState.serverUrl.isNullOrBlank()
+            authState.connectionMethods.isNotEmpty() ||
+            !authState.serverUrl.isNullOrBlank()
 
     val libraryViewModel: LibraryViewModel = hiltViewModel()
     val libraryState by libraryViewModel.libraryState.collectAsStateWithLifecycle()
@@ -159,7 +159,7 @@ fun JellyfinNavigation(
             profileGraph(navController, authViewModel)
         }
 
-        if (showBottomNav && !libraryState.isLoading) {
+        if (showBottomNav && (!libraryState.isLoading || authState.isOfflineMode)) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)

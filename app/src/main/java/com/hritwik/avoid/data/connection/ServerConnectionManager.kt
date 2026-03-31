@@ -58,6 +58,12 @@ class ServerConnectionManager @Inject constructor(
         .build()
     private val evaluationMutex = Mutex()
     private var offlineRecheckJob: Job? = null
+    @Volatile
+    private var lastPingAt: Long = 0L
+    @Volatile
+    private var lastPingReachable: Boolean = false
+    @Volatile
+    private var didStartupRefresh: Boolean = false
 
     init {
         scope.launch {
@@ -83,11 +89,29 @@ class ServerConnectionManager @Inject constructor(
         }
 
         scope.launch {
+            if (didStartupRefresh) return@launch
+            val state = _state.value
+            val onWifi = connectivityObserver.isOnWifi.value
+            val hasLocal = state.methods.any { it.isLocal }
+            val activeIsRemote = state.activeMethod?.isLocal == false
+            if (!state.isOffline && onWifi && hasLocal && activeIsRemote) {
+                didStartupRefresh = true
+                refreshActiveConnection(
+                    messageOnSwitch = "Reconnected to local server",
+                    forceCheck = true
+                )
+            }
+        }
+
+        scope.launch {
             connectivityObserver.isConnected.collect { connected ->
+                val current = _state.value
                 if (connected) {
-                    refreshActiveConnection(messageOnSwitch = "Reconnected to preferred connection")
+                    if (current.isOffline || current.activeMethod == null) {
+                        refreshActiveConnection(messageOnSwitch = "Reconnected to preferred connection")
+                    }
                 } else {
-                    setOffline(true, "No network connection")
+                    refreshActiveConnection(messageOnSwitch = null, forceCheck = true)
                 }
             }
         }
@@ -96,6 +120,7 @@ class ServerConnectionManager @Inject constructor(
             var lastWifi = connectivityObserver.isOnWifi.value
             connectivityObserver.isOnWifi.collect { onWifi ->
                 if (onWifi != lastWifi) {
+                    didStartupRefresh = true
                     val message = if (onWifi) {
                         "Reconnected to local server"
                     } else {
@@ -149,14 +174,17 @@ class ServerConnectionManager @Inject constructor(
 
     suspend fun refreshActiveConnection(
         messageOnSwitch: String? = null,
-        excludeUrl: String? = null
+        excludeUrl: String? = null,
+        forceCheck: Boolean = false
     ): ServerConnectionMethod? = evaluationMutex.withLock {
-        if (!connectivityObserver.isConnected.value) {
-            lastEvaluationTimedOut = false
-            setOffline(true, "No network connection")
-            return@withLock null
+        if (!forceCheck) {
+            val elapsed = SystemClock.elapsedRealtime() - lastPingAt
+            if (elapsed < PING_RESULT_TTL_MS && lastPingReachable) {
+                _state.value.activeMethod?.let { method ->
+                    return@withLock method
+                }
+            }
         }
-
         val methods = ensureStoredMethods()
         if (methods.isEmpty()) {
             lastEvaluationTimedOut = false
@@ -206,7 +234,10 @@ class ServerConnectionManager @Inject constructor(
                 if (chosen != null) {
                     lastEvaluationTimedOut = false
                     val notify = if (chosen.url != activeMethod?.url) messageOnSwitch else null
-                    activateMethod(chosen, notify)
+                    val activated = activateMethod(chosen, notify)
+                    lastPingAt = SystemClock.elapsedRealtime()
+                    lastPingReachable = true
+                    activated
                 } else {
                     lastEvaluationTimedOut = timeoutEncountered
                     if (timeoutEncountered) {
@@ -214,12 +245,16 @@ class ServerConnectionManager @Inject constructor(
                     } else {
                         setOffline(true, "All connection methods failed")
                     }
+                    lastPingAt = SystemClock.elapsedRealtime()
+                    lastPingReachable = false
                     null
                 }
             }
         } catch (timeout: TimeoutCancellationException) {
             lastEvaluationTimedOut = true
             setOffline(true, NETWORK_TIMEOUT_MESSAGE)
+            lastPingAt = SystemClock.elapsedRealtime()
+            lastPingReachable = false
             null
         }
     }
@@ -228,13 +263,21 @@ class ServerConnectionManager @Inject constructor(
     suspend fun markRequestSuccess(url: String?) {
         if (url.isNullOrBlank()) return
         val normalized = normalizeUrl(url)
+        val wasOffline = _state.value.isOffline
         evaluationMutex.withLock {
             ensureMethodExists(normalized)
             preferencesManager.saveServerUrlOnly(normalized)
+        }
+        if (wasOffline) {
+            val refreshed = refreshActiveConnection(messageOnSwitch = null, forceCheck = true)
+            if (refreshed == null) return
+        } else {
             preferencesManager.setOfflineMode(false)
             messageState.value = null
+            cancelOfflineRecheck()
         }
-        cancelOfflineRecheck()
+        lastPingAt = SystemClock.elapsedRealtime()
+        lastPingReachable = true
     }
 
     suspend fun markRequestFailure(url: String?, message: String? = null) {
@@ -368,9 +411,6 @@ class ServerConnectionManager @Inject constructor(
             try {
                 while (isActive) {
                     delay(OFFLINE_RECHECK_INTERVAL_MS)
-                    if (!connectivityObserver.isConnected.value) {
-                        continue
-                    }
                     val result = refreshActiveConnection(messageOnSwitch = "Automatically restored connection")
                     if (result != null) {
                         break
@@ -478,7 +518,8 @@ class ServerConnectionManager @Inject constructor(
         private const val PER_PING_TIMEOUT_SECONDS = 1L
         private const val NETWORK_CHECK_TIMEOUT_MS = 5_000L
         private const val NETWORK_TIMEOUT_MESSAGE = "Network check timed out after 5 seconds."
-        private const val OFFLINE_RECHECK_INTERVAL_MS = 10_000L
+        private const val OFFLINE_RECHECK_INTERVAL_MS = 5_000L
+        private const val PING_RESULT_TTL_MS = 3_000L
         private const val PING_PATH = ENDPOINT_SERVER_PING
         private val FALLBACK_PORTS = listOf(8096, 80, 443)
     }

@@ -16,16 +16,21 @@ import com.hritwik.avoid.domain.model.library.MediaItem
 import com.hritwik.avoid.presentation.ui.state.MediaDetailState
 import com.hritwik.avoid.presentation.ui.state.ThemeSongState
 import com.hritwik.avoid.presentation.ui.screen.player.ThemeSongController
-import com.hritwik.avoid.utils.helpers.ConnectivityObserver
 import com.hritwik.avoid.presentation.viewmodel.BaseViewModel
 import com.hritwik.avoid.utils.constants.AppConstants.RESUME_COMPLETION_THRESHOLD
 import com.hritwik.avoid.domain.model.library.UserData
+import com.hritwik.avoid.data.connection.ServerConnectionManager
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.io.IOException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import javax.inject.Inject
 
 @HiltViewModel
@@ -39,13 +44,15 @@ class MediaViewModel @Inject constructor(
     private val getThemeSongIdsUseCase: GetThemeSongIdsUseCase,
     private val preferencesManager: PreferencesManager,
     private val themeSongController: ThemeSongController,
-    connectivityObserver: ConnectivityObserver
-) : BaseViewModel(connectivityObserver) {
+    private val okHttpClient: OkHttpClient,
+    serverConnectionManager: ServerConnectionManager
+) : BaseViewModel(serverConnectionManager) {
 
     private val cache = RepositoryCache()
 
     private var activeThemeSong: ThemeSongState? = themeSongController.currentThemeSong()
     private var playedItemIds: Set<String> = emptySet()
+    private var preferredPlaybackItemId: String? = null
 
     sealed class DetailType {
         object Movie : DetailType()
@@ -61,7 +68,7 @@ class MediaViewModel @Inject constructor(
         viewModelScope.launch {
             _state.value = MediaDetailState(isLoading = true, themeSong = activeThemeSong)
             try {
-                val isOffline = !isConnected.value
+                val isOffline = serverConnectionManager.state.value.isOffline
                 if (isOffline) {
                     val local = getMediaItemDetailLocalUseCase(
                         GetMediaItemDetailLocalUseCase.Params(userId, mediaId)
@@ -90,6 +97,9 @@ class MediaViewModel @Inject constructor(
                 when (detailResult) {
                     is NetworkResult.Success -> {
                         val mediaItem = detailResult.data
+                        if (mediaItem.type.equals("episode", ignoreCase = true)) {
+                            preferredPlaybackItemId = mediaItem.id
+                        }
                         _state.value = _state.value.copy(
                             mediaItem = mediaItem,
                             playbackItem = defaultPlaybackItemFor(mediaItem),
@@ -111,7 +121,7 @@ class MediaViewModel @Inject constructor(
 
                         
                         launch { loadRelated(mediaId, userId, accessToken) }
-                        launch { loadThemeSong(mediaId, accessToken) }
+                        launch { loadThemeSong(mediaItem, userId, accessToken) }
 
                         when (actualType) {
                             DetailType.Series -> {
@@ -119,8 +129,15 @@ class MediaViewModel @Inject constructor(
                             }
                             DetailType.Season -> {
                                 launch { loadEpisodes(mediaId, userId, accessToken) }
+                                mediaItem.seriesId?.let { seriesId ->
+                                    launch { loadSeasons(seriesId, userId, accessToken) }
+                                }
                             }
-                            else -> {}
+                            else -> {
+                                if (mediaItem.type.equals("episode", ignoreCase = true)) {
+                                    launch { loadEpisodesForEpisode(mediaItem, userId, accessToken) }
+                                }
+                            }
                         }
                     }
                     is NetworkResult.Error -> {
@@ -201,6 +218,30 @@ class MediaViewModel @Inject constructor(
         }
     }
 
+    private suspend fun loadEpisodesForEpisode(
+        mediaItem: MediaItem,
+        userId: String,
+        accessToken: String
+    ) {
+        val seasonId = mediaItem.seasonId
+            ?: resolveSeasonId(mediaItem.seriesId, mediaItem.parentIndexNumber, userId, accessToken)
+        seasonId?.let { loadEpisodes(it, userId, accessToken) }
+    }
+
+    private suspend fun resolveSeasonId(
+        seriesId: String?,
+        seasonNumber: Int?,
+        userId: String,
+        accessToken: String
+    ): String? {
+        if (seriesId.isNullOrBlank() || seasonNumber == null) return null
+        val result = getSeasonsUseCase(GetSeasonsUseCase.Params(userId, seriesId, accessToken))
+        if (result is NetworkResult.Success) {
+            return result.data.firstOrNull { it.indexNumber == seasonNumber }?.id
+        }
+        return null
+    }
+
     private fun defaultPlaybackItemFor(mediaItem: MediaItem): MediaItem? {
         return when (mediaItem.type.lowercase()) {
             "movie", "episode" -> mediaItem
@@ -213,6 +254,10 @@ class MediaViewModel @Inject constructor(
             _state.value = _state.value.copy(playbackItem = null)
             return
         }
+
+        val existingPlaybackId = _state.value.playbackItem?.id
+        val preferredId = preferredPlaybackItemId ?: existingPlaybackId
+        val preferredEpisode = preferredId?.let { id -> episodes.firstOrNull { it.id == id } }
 
         val episodeWithResumeProgress = episodes
             .filter { episode ->
@@ -245,7 +290,10 @@ class MediaViewModel @Inject constructor(
             ?: firstUnplayedEpisode
             ?: episodes.first()
 
-        _state.value = _state.value.copy(playbackItem = selectedEpisode)
+        val resolvedEpisode = preferredEpisode ?: selectedEpisode
+
+        _state.value = _state.value.copy(playbackItem = resolvedEpisode)
+        preferredPlaybackItemId = resolvedEpisode.id
     }
 
     private suspend fun loadPlaybackItemForSeason(
@@ -324,7 +372,7 @@ class MediaViewModel @Inject constructor(
         return current.copy(userData = newUserData)
     }
 
-    private suspend fun loadThemeSong(mediaId: String, accessToken: String) {
+    private suspend fun loadThemeSong(mediaItem: MediaItem, userId: String, accessToken: String) {
         val enabled = try { preferencesManager.getPlayThemeSongs().first() } catch (_: Exception) { false }
         if (!enabled) {
             if (activeThemeSong != null) {
@@ -335,64 +383,137 @@ class MediaViewModel @Inject constructor(
             return
         }
 
-        when (val idResult = cache.get("theme_ids_$mediaId") {
+        val fallbackBase = runCatching { preferencesManager.getThemeSongFallbackUrl().first() }.getOrDefault("")
+        val fallbackTvdbId = resolveFallbackTvdbId(mediaItem, userId, accessToken)
+        val fallbackUrl = buildFallbackThemeSongUrl(fallbackTvdbId, fallbackBase)
+        val fallbackId = fallbackTvdbId?.let { "fallback-$it" }
+
+        var resolvedThemeSong: ThemeSongState? = null
+
+        when (val idResult = cache.get("theme_ids_${mediaItem.id}") {
             getThemeSongIdsUseCase(
-                GetThemeSongIdsUseCase.Params(mediaId, accessToken)
+                GetThemeSongIdsUseCase.Params(mediaItem.id, accessToken)
             )
         }) {
             is NetworkResult.Success -> {
                 val newId = idResult.data.firstOrNull()
-                if (newId == null) {
-                    if (activeThemeSong != null) {
-                        activeThemeSong = null
-                        themeSongController.clear()
-                        _state.value = _state.value.copy(themeSong = null)
+                if (newId != null) {
+                    val currentSong = activeThemeSong
+                    if (currentSong != null && currentSong.id == newId) {
+                        _state.value = _state.value.copy(themeSong = currentSong)
+                        return
                     }
-                    return
-                }
 
-                val currentSong = activeThemeSong
-                if (currentSong != null && currentSong.id == newId) {
-                    _state.value = _state.value.copy(themeSong = currentSong)
-                    return
-                }
-
-                when (val themeResult = cache.get("themes_$mediaId") {
-                    getThemeSongsUseCase(
-                        GetThemeSongsUseCase.Params(mediaId, accessToken)
-                    )
-                }) {
-                    is NetworkResult.Success -> {
-                        val song = themeResult.data.firstOrNull()
-                        val mediaSource = song?.mediaSources?.firstOrNull()
-                        if (song != null && mediaSource != null) {
-                            val serverUrl = preferencesManager.getServerUrl().first() ?: return
-                            val container = mediaSource.container?.lowercase() ?: "mp3"
-                            val url = buildString {
-                                append(serverUrl.removeSuffix("/"))
-                                append("/Audio/")
-                                append(song.id)
-                                append("/stream.")
-                                append(container)
-                                append("?static=true&mediaSourceId=")
-                                append(mediaSource.id)
-                                append("&api_key=")
-                                append(accessToken)
+                    when (val themeResult = cache.get("themes_${mediaItem.id}") {
+                        getThemeSongsUseCase(
+                            GetThemeSongsUseCase.Params(mediaItem.id, accessToken)
+                        )
+                    }) {
+                        is NetworkResult.Success -> {
+                            val song = themeResult.data.firstOrNull()
+                            val mediaSource = song?.mediaSources?.firstOrNull()
+                            if (song != null && mediaSource != null) {
+                                val serverUrl = preferencesManager.getServerUrl().first() ?: return
+                                val container = mediaSource.container?.lowercase() ?: "mp3"
+                                val url = buildString {
+                                    append(serverUrl.removeSuffix("/"))
+                                    append("/Audio/")
+                                    append(song.id)
+                                    append("/stream.")
+                                    append(container)
+                                    append("?static=true&mediaSourceId=")
+                                    append(mediaSource.id)
+                                    append("&api_key=")
+                                    append(accessToken)
+                                }
+                                resolvedThemeSong = ThemeSongState(newId, url)
                             }
-                            val themeSongState = ThemeSongState(newId, url)
-                            activeThemeSong = themeSongState
-                            _state.value = _state.value.copy(themeSong = themeSongState)
-                        } else {
-                            activeThemeSong = null
-                            themeSongController.clear()
-                            _state.value = _state.value.copy(themeSong = null)
                         }
+                        else -> Unit
                     }
-                    else -> Unit
                 }
             }
             else -> Unit
         }
+
+        if (resolvedThemeSong == null && fallbackUrl != null && fallbackId != null) {
+            val canUseFallback = isFallbackAvailable(fallbackUrl)
+            if (canUseFallback) {
+                resolvedThemeSong = ThemeSongState(fallbackId, fallbackUrl)
+            }
+        }
+
+        if (resolvedThemeSong != null) {
+            activeThemeSong = resolvedThemeSong
+            _state.value = _state.value.copy(themeSong = resolvedThemeSong)
+        } else if (activeThemeSong != null) {
+            activeThemeSong = null
+            themeSongController.clear()
+            _state.value = _state.value.copy(themeSong = null)
+        }
+    }
+
+    private fun buildFallbackThemeSongUrl(tvdbId: String?, fallbackBaseUrl: String?): String? {
+        val id = tvdbId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val rawBase = fallbackBaseUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotEmpty() } ?: return null
+        val base = when {
+            rawBase.startsWith("http://", ignoreCase = true) ||
+                rawBase.startsWith("https://", ignoreCase = true) -> rawBase
+            else -> "http://$rawBase"
+        }
+        return "$base/$id.mp3"
+    }
+
+    fun loadSeasonEpisodes(seasonId: String, userId: String, accessToken: String) {
+        viewModelScope.launch {
+            loadEpisodes(seasonId, userId, accessToken)
+        }
+    }
+
+    private suspend fun resolveFallbackTvdbId(
+        mediaItem: MediaItem,
+        userId: String,
+        accessToken: String
+    ): String? {
+        val type = mediaItem.type.lowercase()
+        val isSeries = type == "series"
+        val isSeasonOrEpisode = type == "season" || type == "episode"
+        if (isSeries || !isSeasonOrEpisode) {
+            mediaItem.tvdbId?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+        }
+        val seriesId = mediaItem.seriesId ?: return null
+        val local = getMediaItemDetailLocalUseCase(GetMediaItemDetailLocalUseCase.Params(userId, seriesId))
+        local?.tvdbId?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+        return when (
+            val remote = getMediaItemDetailUseCase(
+                GetMediaItemDetailUseCase.Params(userId, seriesId, accessToken)
+            )
+        ) {
+            is NetworkResult.Success -> remote.data.tvdbId?.trim()?.takeIf { it.isNotEmpty() }
+            else -> null
+        }
+    }
+
+    private suspend fun isFallbackAvailable(url: String): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val headRequest = Request.Builder()
+                .url(url)
+                .head()
+                .build()
+            okHttpClient.newCall(headRequest).execute().use { response ->
+                if (response.isSuccessful) return@withContext true
+                if (response.code != 405) return@withContext false
+            }
+
+            val rangeRequest = Request.Builder()
+                .url(url)
+                .get()
+                .addHeader("Range", "bytes=0-0")
+                .build()
+            okHttpClient.newCall(rangeRequest).execute().use { response ->
+                response.isSuccessful
+            }
+        }.getOrElse { false }
     }
 
     fun clearError() {
@@ -405,5 +526,10 @@ class MediaViewModel @Inject constructor(
 
     fun clearState() {
         _state.value = MediaDetailState()
+        preferredPlaybackItemId = null
+    }
+
+    fun setPreferredPlaybackItemId(itemId: String?) {
+        preferredPlaybackItemId = itemId?.takeIf { it.isNotBlank() }
     }
 }

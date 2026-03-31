@@ -8,6 +8,8 @@ data class HomeScreenData(
     val nextUpItems: List<MediaItem>,
     val latestEpisodes: List<MediaItem>,
     val latestMovies: List<MediaItem>,
+    val movies: List<MediaItem>,
+    val shows: List<MediaItem>,
     val recentlyReleasedMovies: List<MediaItem>,
     val recentlyReleasedShows: List<MediaItem>,
     val recommendedItems: List<MediaItem>,

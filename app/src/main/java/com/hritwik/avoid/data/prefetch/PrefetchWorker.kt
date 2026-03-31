@@ -40,44 +40,8 @@ class PrefetchWorker(
     }
 
     override suspend fun doWork(): Result {
-        val entryPoint = EntryPointAccessors.fromApplication(
-            applicationContext,
-            PrefetchEntryPoint::class.java
-        )
-        val prefs = entryPoint.preferencesManager()
-        val repository = entryPoint.libraryRepository()
-        val dao = entryPoint.mediaItemDao()
-        val client = entryPoint.okHttpClient()
-        val monitor = entryPoint.networkMonitor()
-        val helper = entryPoint.networkHelper()
-
-        val connected = monitor.isConnected.first()
-        val wifiOnly = prefs.getCacheWifiOnly().first()
-        val isWifi = helper.isWifiConnected()
-        if (!connected || (wifiOnly && !isWifi)) {
-            return Result.retry()
-        }
-
-        val userId = prefs.getUserId().first() ?: return Result.success()
-        val token = prefs.getAccessToken().first() ?: return Result.success()
-        val serverUrl = prefs.getServerUrl().first() ?: return Result.success()
-
-        when (val result = repository.getNextUpEpisodes(userId, token, limit = 10)) {
-            is NetworkResult.Success -> {
-                val episodes = result.data.map { item ->
-                    when (val detail = repository.getMediaItemDetail(userId, item.id, token)) {
-                        is NetworkResult.Success -> detail.data
-                        else -> item
-                    }
-                }
-                dao.insertMediaItems(episodes.map { it.toEntity(userId) })
-                episodes.forEach { item ->
-                    prefetchImage(client, serverUrl, item)
-                }
-                return Result.success()
-            }
-            else -> return Result.retry()
-        }
+        // Disabled prefetch to reduce startup/load time
+        return Result.success()
     }
 
     private fun prefetchImage(client: OkHttpClient, serverUrl: String, item: MediaItem) {
@@ -103,6 +67,7 @@ class PrefetchWorker(
         runTimeTicks = runTimeTicks,
         primaryImageTag = primaryImageTag,
         thumbImageTag = thumbImageTag,
+        tvdbId = tvdbId,
         backdropImageTags = backdropImageTags,
         genres = genres,
         isFolder = isFolder,

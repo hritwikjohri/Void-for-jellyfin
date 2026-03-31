@@ -28,12 +28,11 @@ object CacheModule {
     @OptIn(UnstableApi::class)
     @Provides
     @Singleton
-    fun provideCacheEvictor(
-        preferencesManager: PreferencesManager
-    ): LeastRecentlyUsedCacheEvictor {
-        val cacheSizeMb = runBlocking { preferencesManager.getVideoCacheSize().first() }
-        val cacheSizeBytes = cacheSizeMb * 1024 * 1024
-        return LeastRecentlyUsedCacheEvictor(cacheSizeBytes)
+    fun provideCacheEvictor(): LeastRecentlyUsedCacheEvictor {
+        // Use default cache size (500MB) to avoid blocking during DI initialization
+        // User can adjust cache size in settings, which will be applied on next app restart
+        val defaultCacheSizeBytes = 500L * 1024 * 1024
+        return LeastRecentlyUsedCacheEvictor(defaultCacheSizeBytes)
     }
 
     @OptIn(UnstableApi::class)

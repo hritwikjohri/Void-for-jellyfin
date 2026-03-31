@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -32,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
@@ -99,9 +101,12 @@ fun Search(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = calculateRoundedValue(16).sdp),
+                            .padding(
+                                start = calculateRoundedValue(8).sdp,
+                                end = calculateRoundedValue(16).sdp
+                            ),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(calculateRoundedValue(12).sdp)
+                        horizontalArrangement = Arrangement.spacedBy(calculateRoundedValue(8).sdp)
                     ) {
                         IconButton(onClick = onBackClick) {
                             Icon(
@@ -119,13 +124,6 @@ fun Search(
                             },
                             onQueryChange = {
                                 searchViewModel.updateSearchQuery(it)
-                                authState.authSession?.let { session ->
-                                    searchViewModel.fetchSearchSuggestions(
-                                        query = it,
-                                        userId = session.userId.id,
-                                        accessToken = session.accessToken
-                                    )
-                                }
                             },
                             onClear = {
                                 searchViewModel.clearSearch()
@@ -143,66 +141,28 @@ fun Search(
                             isJellyseerActive = searchState.isJellyseerSearchEnabled,
                             isJellyseerToggleEnabled = searchState.isJellyseerConfigured,
                             onJellyseerToggle = { searchViewModel.toggleJellyseerSearch() },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 56.dp)
                         )
-                    }
-                }
 
-                if (!searchState.isJellyseerSearchEnabled) {
-                    item {
-                        SectionHeader(
-                            modifier = Modifier.padding(horizontal = calculateRoundedValue(6).sdp),
-                            title = "Filters",
-                            subtitle = "Refine results from your Jellyfin server"
-                        ) {
-                            SearchFilterRow(
+                        if (!searchState.isJellyseerSearchEnabled) {
+                            SearchFilterDropdown(
                                 filters = searchFilters,
-                                onFiltersChange = {
-                                    searchViewModel.updateFilters(it)
+                                onApply = { updatedFilters ->
+                                    searchViewModel.updateFilters(updatedFilters)
                                     searchViewModel.performImmediateSearch(query = searchState.searchQuery)
-                                },
-                                modifier = Modifier.padding(horizontal = calculateRoundedValue(10).sdp)
+                                }
                             )
                         }
                     }
                 }
 
                 if (searchState.isSearchActive) {
-                    if (!searchState.isJellyseerSearchEnabled && searchState.suggestions.isNotEmpty()) {
-                        items(searchState.suggestions) { suggestion ->
-                            Text(
-                                text = suggestion,
-                                color = PrimaryText,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        authState.authSession?.let { session ->
-                                            searchViewModel.updateSearchQuery(suggestion)
-                                            searchViewModel.performImmediateSearch(query = suggestion)
-                                            focusManager.clearFocus()
-                                        }
-                                    }
-                                    .padding(
-                                        horizontal = calculateRoundedValue(16).sdp,
-                                        vertical = calculateRoundedValue(8).sdp
-                                    )
-                            )
-                        }
-                    }
-
-                    if (!searchState.isJellyseerSearchEnabled && searchState.suggestionsError != null) {
-                        item {
-                            Text(
-                                text = searchState.suggestionsError.orEmpty(),
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(horizontal = calculateRoundedValue(16).sdp)
-                            )
-                        }
-                    }
 
                     if (searchState.isJellyseerSearchEnabled) {
                         when {
-                            jellyseerResults.loadState.refresh is LoadState.Loading && jellyseerResults.itemCount == 0 -> {
+                            jellyseerResults.loadState.refresh is LoadState.Loading -> {
                                 item {
                                     Box(
                                         modifier = Modifier
@@ -293,7 +253,7 @@ fun Search(
                                 }
                             }
                         }
-                    } else if (searchResults.loadState.refresh is LoadState.Loading && searchResults.itemCount == 0) {
+                    } else if (searchResults.loadState.refresh is LoadState.Loading) {
                         item {
                             Box(
                                 modifier = Modifier
@@ -321,7 +281,7 @@ fun Search(
                                 }
                             )
                         }
-                    } else if (!searchState.isJellyseerSearchEnabled) {
+                    } else {
                         val results = searchResults.itemSnapshotList.items
                         val nonEpisodes = results.filter { it.type != "Episode" }
                         val episodes = results.filter { it.type == "Episode" }

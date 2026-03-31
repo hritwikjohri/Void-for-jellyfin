@@ -47,6 +47,9 @@ fun MediaItemCard(
     showTitle: Boolean = true,
     customImageUrl: String? = null,
     isWatched: Boolean = false,
+    shouldLoadImages: Boolean = true,
+    bypassCache: Boolean = false,
+    authToken: String? = null,
     onClick: (MediaItem) -> Unit = {}
 ) {
     val imageHelper = LocalImageHelper.current
@@ -91,8 +94,10 @@ fun MediaItemCard(
                     mediaItem.primaryImageTag,
                     mediaItem.backdropImageTags,
                     cardType,
-                    customImageUrl
+                    customImageUrl,
+                    shouldLoadImages
                 ) {
+                    if (!shouldLoadImages) return@remember null
                     customImageUrl ?: if (cardType == MediaCardType.THUMBNAIL) {
                         imageHelper.createBackdropUrl(
                             serverUrl,
@@ -113,7 +118,9 @@ fun MediaItemCard(
                         data = imageUrl,
                         contentDescription = mediaItem.name,
                         modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.FillBounds
+                        contentScale = ContentScale.FillBounds,
+                        disableCache = bypassCache,
+                        authToken = authToken
                     )
                 } else {
                     EmptyItem()

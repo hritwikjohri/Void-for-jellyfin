@@ -37,6 +37,8 @@ fun CollectionItemCard(
     previewItems: List<MediaItem>,
     serverUrl: String,
     modifier: Modifier = Modifier,
+    bypassCache: Boolean = false,
+    authToken: String? = null,
     onClick: (MediaItem) -> Unit = {}
 ) {
     val imageHelper = LocalImageHelper.current
@@ -133,7 +135,9 @@ fun CollectionItemCard(
                         NetworkImage(
                             data = imageUrl,
                             contentDescription = item.name,
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize(),
+                            disableCache = bypassCache,
+                            authToken = authToken
                         )
                     } else {
                         EmptyItem()

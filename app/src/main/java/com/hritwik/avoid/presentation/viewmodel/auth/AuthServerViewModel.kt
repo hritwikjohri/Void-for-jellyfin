@@ -9,6 +9,7 @@ import com.hritwik.avoid.data.common.NetworkResult
 import com.hritwik.avoid.data.connection.ServerConnectionEvent
 import com.hritwik.avoid.data.connection.ServerConnectionManager
 import com.hritwik.avoid.data.local.PreferencesManager
+import com.hritwik.avoid.data.network.MtlsCertificateProvider
 import com.hritwik.avoid.presentation.ui.state.AuthServerState
 import com.hritwik.avoid.presentation.ui.state.InitializationState
 import com.hritwik.avoid.presentation.ui.state.PasswordChangeState
@@ -73,7 +74,8 @@ class AuthServerViewModel @Inject constructor(
     private val pollQuickConnectUseCase: PollQuickConnectUseCase,
     private val serverConnectionManager: ServerConnectionManager,
     private val preferencesManager: PreferencesManager,
-    private val okHttpClient: OkHttpClient
+    private val okHttpClient: OkHttpClient,
+    private val mtlsCertificateProvider: MtlsCertificateProvider,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AuthServerState())
@@ -84,6 +86,7 @@ class AuthServerViewModel @Inject constructor(
     val passwordChangeState: StateFlow<PasswordChangeState> = _passwordChangeState.asStateFlow()
 
     private var quickConnectJob: Job? = null
+    private var pendingMtlsPassword: String? = null
 
     init {
         state.onEach { authSessionProvider.updateSession(it.authSession) }.launchIn(viewModelScope)
@@ -129,10 +132,11 @@ class AuthServerViewModel @Inject constructor(
             ) { enabled, certificateName, password ->
                 Triple(enabled, certificateName, password)
             }.collect { (enabled, certificateName, password) ->
+                val pendingPassword = pendingMtlsPassword
                 _state.value = _state.value.copy(
                     isMtlsEnabled = enabled,
                     mtlsCertificateName = certificateName,
-                    mtlsCertificatePassword = password.orEmpty()
+                    mtlsCertificatePassword = pendingPassword ?: password.orEmpty()
                 )
             }
         }
@@ -379,6 +383,7 @@ class AuthServerViewModel @Inject constructor(
                 preferencesManager.saveMtlsCertificate(bytes, displayName)
                 preferencesManager.setMtlsEnabled(true)
                 preferencesManager.setMtlsCertificatePassword("")
+                pendingMtlsPassword = null
                 _state.value = _state.value.copy(
                     isMtlsImporting = false,
                     mtlsError = null,
@@ -396,10 +401,8 @@ class AuthServerViewModel @Inject constructor(
     }
 
     fun updateMtlsCertificatePassword(password: String) {
+        pendingMtlsPassword = password
         _state.value = _state.value.copy(mtlsCertificatePassword = password)
-        viewModelScope.launch {
-            preferencesManager.setMtlsCertificatePassword(password)
-        }
     }
 
     fun removeMtlsCertificate() {
@@ -408,6 +411,7 @@ class AuthServerViewModel @Inject constructor(
             runCatching {
                 preferencesManager.clearMtlsCertificate()
                 preferencesManager.setMtlsEnabled(false)
+                pendingMtlsPassword = null
             }.onSuccess {
                 _state.value = _state.value.copy(
                     isMtlsImporting = false,
@@ -442,9 +446,34 @@ class AuthServerViewModel @Inject constructor(
             )
 
             val cleanUrl = cleanServerUrl(serverUrl)
+            val useMtls = _state.value.isMtlsEnabled && !_state.value.mtlsCertificateName.isNullOrBlank()
+            val mtlsPassword = _state.value.mtlsCertificatePassword
 
-            when (val result = connectToServerUseCase(cleanUrl)) {
+            val result = try {
+                if (useMtls) {
+                    mtlsCertificateProvider.withTemporaryPassword(mtlsPassword) {
+                        connectToServerUseCase(cleanUrl)
+                    }
+                } else {
+                    connectToServerUseCase(cleanUrl)
+                }
+            } catch (error: Exception) {
+                _state.value = _state.value.copy(
+                    isLoading = false,
+                    isConnected = false,
+                    server = null,
+                    mtlsError = if (useMtls) "Unable to connect" else _state.value.mtlsError,
+                    error = error.message ?: "Unable to connect"
+                )
+                return@launch
+            }
+
+            when (result) {
                 is NetworkResult.Success -> {
+                    if (useMtls) {
+                        preferencesManager.setMtlsCertificatePassword(mtlsPassword)
+                        pendingMtlsPassword = null
+                    }
                     saveServerConfigUseCase(result.data)
                     val connectionState = serverConnectionManager.state.value
                     val updatedServer = result.data.copy(
@@ -471,7 +500,8 @@ class AuthServerViewModel @Inject constructor(
                         isLoading = false,
                         isConnected = false,
                         server = null,
-                        error = result.message
+                        error = result.message,
+                        mtlsError = if (useMtls) "Unable to connect" else _state.value.mtlsError
                     )
                 }
                 else -> Unit
@@ -685,8 +715,7 @@ class AuthServerViewModel @Inject constructor(
                         val isAuthError = validationResult is NetworkResult.Error && validationResult.error is AppError.Auth
                         val shouldInvalidate =
                             (validationResult is NetworkResult.Success && !validationResult.data) || isAuthError
-                        val isOfflineError = connectionState.isOffline ||
-                                (validationResult is NetworkResult.Error && !isAuthError)
+                        val isOfflineError = connectionState.isOffline
 
                         if (shouldInvalidate) {
                             runCatching {

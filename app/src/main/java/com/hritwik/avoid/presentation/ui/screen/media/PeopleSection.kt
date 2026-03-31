@@ -24,11 +24,12 @@ fun PeopleSection(
     title: String,
     people: List<Person>,
     serverUrl: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onPersonClick: (Person) -> Unit = {}
 ) {
     if (people.isEmpty()) return
 
-    Spacer(modifier = Modifier.height(calculateRoundedValue(32).sdp))
+    Spacer(modifier = Modifier.height(calculateRoundedValue(14).sdp))
 
     Text(
         text = title,
@@ -45,7 +46,11 @@ fun PeopleSection(
         contentPadding = PaddingValues(horizontal = calculateRoundedValue(16).sdp)
     ) {
         items(people) { person ->
-            PersonCard(person = person, serverUrl = serverUrl)
+            PersonCard(
+                person = person,
+                serverUrl = serverUrl,
+                onClick = onPersonClick
+            )
         }
     }
 }

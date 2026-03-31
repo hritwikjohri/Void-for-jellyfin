@@ -84,13 +84,36 @@ class JellyseerDetailViewModel @Inject constructor(
         }
     }
 
+    fun showConfirmationDialog() {
+        _state.update { it.copy(showConfirmationDialog = true) }
+    }
+
+    fun hideConfirmationDialog() {
+        _state.update { it.copy(showConfirmationDialog = false) }
+    }
+
+    fun hideSuccessDialog() {
+        _state.update { it.copy(showSuccessDialog = false) }
+    }
+
+    fun hideErrorDialog() {
+        _state.update { it.copy(showErrorDialog = false) }
+    }
+
     fun requestMedia(mediaId: Long, mediaType: JellyseerMediaType) {
         val currentDetail = _state.value.detail ?: return
         if (_state.value.isRequesting) return
 
         viewModelScope.launch {
             val selectedQuality = _state.value.selectedVideoQuality
-            _state.update { it.copy(isRequesting = true, requestMessage = null, requestError = null) }
+            _state.update {
+                it.copy(
+                    isRequesting = true,
+                    requestMessage = null,
+                    requestError = null,
+                    showConfirmationDialog = false
+                )
+            }
             val result = createRequestUseCase(
                 CreateJellyseerRequestUseCase.Params(
                     id = currentDetail.id,
@@ -104,13 +127,20 @@ class JellyseerDetailViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             isRequesting = false,
-                            requestMessage = "${selectedQuality.displayName} request submitted successfully"
+                            requestMessage = "${selectedQuality.displayName} request submitted successfully",
+                            showSuccessDialog = true
                         )
                     }
                     loadDetails(currentDetail.id, currentDetail.mediaType)
                 }
                 is NetworkResult.Error -> {
-                    _state.update { it.copy(isRequesting = false, requestError = result.message) }
+                    _state.update {
+                        it.copy(
+                            isRequesting = false,
+                            requestError = result.message,
+                            showErrorDialog = true
+                        )
+                    }
                 }
                 is NetworkResult.Loading -> {
                     _state.update { it.copy(isRequesting = true) }

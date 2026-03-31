@@ -6,6 +6,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import com.hritwik.avoid.R
 import com.hritwik.avoid.domain.model.download.DownloadCodec
 import com.hritwik.avoid.utils.helpers.calculateRoundedValue
 import ir.kaaveh.sdpcompose.sdp
@@ -17,27 +19,35 @@ fun DownloadCodecDialog(
     onCodecSelected: (DownloadCodec) -> Unit,
     onDismiss: () -> Unit
 ) {
-    SelectionDialog(
+    VoidAlertDialog(
+        visible = true,
         title = "Preferred Codec",
         icon = Icons.Default.Tune,
-        onDismiss = onDismiss
-    ) {
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(calculateRoundedValue(4).sdp)) {
-            items(options) { codec ->
-                val subtitle = buildString {
-                    append(codec.serverValue.uppercase())
-                    codec.profile?.let { profile ->
-                        append(" • ")
-                        append(profile.uppercase())
+        onDismissRequest = onDismiss,
+        dismissText = stringResource(id = R.string.close),
+        onDismissButton = onDismiss,
+        content = {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(calculateRoundedValue(4).sdp)) {
+                items(options) { codec ->
+                    val detail = buildString {
+                        append(codec.serverValue.uppercase())
+                        codec.profile?.let { profile ->
+                            append(" • ")
+                            append(profile.uppercase())
+                        }
                     }
+                    val label = if (detail.isNotEmpty()) {
+                        "${codec.label} • $detail"
+                    } else {
+                        codec.label
+                    }
+                    SelectionItem(
+                        title = label,
+                        isSelected = codec == currentCodec,
+                        onClick = { onCodecSelected(codec) }
+                    )
                 }
-                SelectionItem(
-                    title = codec.label,
-                    subtitle = subtitle,
-                    isSelected = codec == currentCodec,
-                    onClick = { onCodecSelected(codec) }
-                )
             }
         }
-    }
+    )
 }

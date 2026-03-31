@@ -28,11 +28,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import com.hritwik.avoid.R
+import com.hritwik.avoid.presentation.ui.components.bottomSheets.VoidModalSheet
 import com.hritwik.avoid.utils.helpers.calculateRoundedValue
 import ir.kaaveh.sdpcompose.sdp
 
@@ -173,7 +172,6 @@ fun RecentSearches(
     if (recentSearches.isEmpty()) return
 
     var showAllSearches by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState()
 
     Column(
         modifier = modifier
@@ -231,9 +229,8 @@ fun RecentSearches(
 
     
     if (showAllSearches) {
-        ModalBottomSheet(
-            onDismissRequest = { showAllSearches = false },
-            sheetState = sheetState
+        VoidModalSheet(
+            onDismissRequest = { showAllSearches = false }
         ) {
             AllRecentSearchesContent(
                 recentSearches = recentSearches,

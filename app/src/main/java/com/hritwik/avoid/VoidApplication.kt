@@ -13,6 +13,7 @@ import coil.Coil
 import coil.ImageLoader
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import com.hritwik.avoid.cast.CastManager
 import com.hritwik.avoid.core.ServiceManager
 import com.hritwik.avoid.data.cache.CacheManager
 import com.hritwik.avoid.data.download.DownloadService
@@ -22,7 +23,7 @@ import com.hritwik.avoid.data.network.CdnInterceptor
 import com.hritwik.avoid.data.sync.UserDataSyncWorker
 import com.hritwik.avoid.di.ApplicationScope
 import com.hritwik.avoid.utils.CrashReporter
-import com.hritwik.avoid.utils.helpers.NetworkMonitor
+import com.hritwik.avoid.data.connection.ServerConnectionManager
 import com.hritwik.avoid.data.sync.PlaybackLogSyncWorker
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -35,6 +36,7 @@ import java.util.Locale
 import javax.inject.Inject
 import okhttp3.OkHttpClient
 
+@OptIn(UnstableApi::class)
 @HiltAndroidApp
 class VoidApplication : Application() {
     @Inject
@@ -46,13 +48,15 @@ class VoidApplication : Application() {
     @Inject
     lateinit var serviceManager: ServiceManager
     @Inject
-    lateinit var networkMonitor: NetworkMonitor
+    lateinit var serverConnectionManager: ServerConnectionManager
     @Inject
     lateinit var pendingActionDao: PendingActionDao
     @Inject
     lateinit var cacheManager: CacheManager
     @Inject
     lateinit var okHttpClient: OkHttpClient
+    @Inject
+    lateinit var castManager: CastManager
 
     private val trimCallbacks = mutableListOf<ComponentCallbacks2>()
 
@@ -60,11 +64,11 @@ class VoidApplication : Application() {
         CrashReporter.report(throwable)
     }
 
-    @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
         copyBundledFonts()
         applyTheme()
+        castManager.initialize()
         val coilOkHttpClient = okHttpClient.newBuilder()
             .apply { interceptors().removeAll { it is CdnInterceptor } }
             .build()
@@ -98,8 +102,10 @@ class VoidApplication : Application() {
         }
 
         applicationScope.launch(crashHandler) {
-            networkMonitor.isConnected.collect { connected ->
-                if (connected && pendingActionDao.getPendingActions().isNotEmpty()) {
+            serverConnectionManager.state.collect { state ->
+                if (!state.isOffline && state.activeMethod != null &&
+                    pendingActionDao.getPendingActions().isNotEmpty()
+                ) {
                     UserDataSyncWorker.syncNow(this@VoidApplication)
                 }
             }
@@ -132,12 +138,18 @@ class VoidApplication : Application() {
     }
 
     private fun applyTheme() {
-        val mode = runBlocking { preferencesManager.getThemeMode().first() }
-        val nightMode = if (mode == "light")
-            AppCompatDelegate.MODE_NIGHT_NO
-        else
-            AppCompatDelegate.MODE_NIGHT_YES
-        AppCompatDelegate.setDefaultNightMode(nightMode)
+        // Apply system default immediately (non-blocking)
+        AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
+
+        // Apply saved theme preference asynchronously
+        applicationScope.launch(crashHandler) {
+            val mode = preferencesManager.getThemeMode().first()
+            val nightMode = if (mode == "light")
+                AppCompatDelegate.MODE_NIGHT_NO
+            else
+                AppCompatDelegate.MODE_NIGHT_YES
+            AppCompatDelegate.setDefaultNightMode(nightMode)
+        }
     }
 
     private fun copyBundledFonts() {
@@ -162,6 +174,8 @@ class VoidApplication : Application() {
 
     private fun initializePreferences() {
         applicationScope.launch(crashHandler) {
+            // Initialize PreferencesManager (runs auth data migration if needed)
+            preferencesManager.initialize()
             preferencesManager.initializeThemePreferences()
             val lang = preferencesManager.getPreferredLanguage().first()
             applyPersonalization(lang)

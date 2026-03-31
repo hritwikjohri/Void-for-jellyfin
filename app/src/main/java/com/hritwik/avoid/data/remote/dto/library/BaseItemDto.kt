@@ -66,5 +66,7 @@ data class BaseItemDto(
     @SerialName("ParentIndexNumber")
     val parentIndexNumber: Int? = null,
     @SerialName("IndexNumber")
-    val indexNumber: Int? = null
+    val indexNumber: Int? = null,
+    @SerialName("ProviderIds")
+    val providerIds: Map<String, String?>? = null
 )

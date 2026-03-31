@@ -23,8 +23,9 @@ import com.hritwik.avoid.domain.model.library.MediaItem
 import com.hritwik.avoid.presentation.ui.components.common.ContentGrid
 import com.hritwik.avoid.presentation.ui.components.common.ErrorDisplay
 import com.hritwik.avoid.presentation.ui.components.common.ScreenHeader
+import com.hritwik.avoid.presentation.ui.components.common.SectionedContentGrid
 import com.hritwik.avoid.presentation.ui.components.common.states.EmptyLibraryState
-import com.hritwik.avoid.presentation.ui.components.common.states.LoadingState
+import com.hritwik.avoid.presentation.ui.components.common.states.GridLoadingSkeleton
 import com.hritwik.avoid.presentation.ui.components.visual.AnimatedAmbientBackground
 import com.hritwik.avoid.presentation.ui.state.LibraryGenresState
 import com.hritwik.avoid.presentation.viewmodel.auth.AuthServerViewModel
@@ -43,6 +44,7 @@ fun LibraryScreen(
     val gridState = rememberSaveable(libraryId, saver = LazyGridState.Saver) { LazyGridState() }
     val genresState by libraryViewModel.genresState.collectAsStateWithLifecycle()
     val libraryState by libraryViewModel.libraryState.collectAsStateWithLifecycle()
+    val itemsState by libraryViewModel.itemsState.collectAsStateWithLifecycle()
     val sortPreferences by libraryViewModel.librarySortPreferences.collectAsStateWithLifecycle()
     val currentGenresState = genresState[libraryId] ?: LibraryGenresState()
     val savedSortPreference = sortPreferences[libraryId]
@@ -92,6 +94,20 @@ fun LibraryScreen(
                 libraryId = libraryId,
                 accessToken = session.accessToken
             )
+        }
+    }
+
+    // Load all library items when alpha scroller is supported
+    LaunchedEffect(libraryId, selectedSortId, sortDirectionName, selectedGenre, authState.authSession) {
+        if (selectedSortOption.supportsAlphaScroller && selectedGenre == null) {
+            authState.authSession?.let { session ->
+                libraryViewModel.loadLibraryItems(
+                    userId = session.userId.id,
+                    libraryId = libraryId,
+                    accessToken = session.accessToken,
+                    supportsAlphaScroller = true
+                )
+            }
         }
     }
 
@@ -188,22 +204,38 @@ fun LibraryScreen(
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when {
                     pagingItems == null || pagingItems.loadState.refresh is LoadState.Loading -> {
-                        LoadingState()
+                        GridLoadingSkeleton()
                     }
                     pagingItems.itemCount == 0 -> {
                         EmptyLibraryState(libraryName)
                     }
                     else -> {
-                        ContentGrid(
-                            items = pagingItems,
-                            gridState = gridState,
-                            serverUrl = authState.authSession?.server?.url ?: "",
-                            onMediaItemClick = onMediaItemClick,
-                            showAlphaScroller = selectedSortOption.supportsAlphaScroller,
-                            collectionPreviewProvider = { item ->
-                                libraryState.collectionPreviews[item.id].orEmpty()
-                            }
-                        )
+                        // Use sectioned grid if we have sectioned items (for alpha scroller)
+                        if (itemsState.sectionedItems.isNotEmpty() && selectedSortOption.supportsAlphaScroller) {
+                            SectionedContentGrid(
+                                sectionedItems = itemsState.sectionedItems,
+                                sectionHeaderIndices = itemsState.sectionHeaderIndices,
+                                gridState = gridState,
+                                serverUrl = authState.authSession?.server?.url ?: "",
+                                onMediaItemClick = onMediaItemClick,
+                                showAlphaScroller = true,
+                                collectionPreviewProvider = { item ->
+                                    libraryState.collectionPreviews[item.id].orEmpty()
+                                }
+                            )
+                        } else {
+                            // Use regular paged grid for other sorts
+                            ContentGrid(
+                                items = pagingItems,
+                                gridState = gridState,
+                                serverUrl = authState.authSession?.server?.url ?: "",
+                                onMediaItemClick = onMediaItemClick,
+                                showAlphaScroller = selectedSortOption.supportsAlphaScroller,
+                                collectionPreviewProvider = { item ->
+                                    libraryState.collectionPreviews[item.id].orEmpty()
+                                }
+                            )
+                        }
                     }
                 }
             }

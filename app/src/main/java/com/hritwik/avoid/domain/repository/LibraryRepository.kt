@@ -11,6 +11,8 @@ import com.hritwik.avoid.domain.model.library.PendingAction
 import com.hritwik.avoid.domain.model.playback.Segment
 import com.hritwik.avoid.domain.model.library.HomeScreenData
 import com.hritwik.avoid.domain.model.library.Person
+import com.hritwik.avoid.domain.model.playback.TranscodeRequestParameters
+import com.hritwik.avoid.domain.model.playback.PlaybackStreamInfo
 
 data class RelatedResources(
     val similar: List<MediaItem>,
@@ -19,6 +21,7 @@ data class RelatedResources(
 
 interface LibraryRepository {
     suspend fun getUserLibraries(userId: String, accessToken: String): NetworkResult<List<Library>>
+    suspend fun getUserLibrariesFromCache(userId: String): List<Library>
     suspend fun getLibraryItems(
         userId: String,
         libraryId: String,
@@ -39,28 +42,46 @@ interface LibraryRepository {
     suspend fun getHomeScreenData(
         userId: String,
         accessToken: String,
-        limit: Int = 20
+        limit: Int = 10  // Reduced from 20 to 10 for better initial load performance
     ): NetworkResult<HomeScreenData>
     suspend fun getLatestItems(
         userId: String,
         accessToken: String,
         limit: Int = 20
     ): NetworkResult<List<MediaItem>>
-    suspend fun getResumeItems(
+    suspend fun getLatestItemsByLibrary(
         userId: String,
+        libraryId: String,
         accessToken: String,
         limit: Int = 20
     ): NetworkResult<List<MediaItem>>
+    suspend fun getResumeItems(
+        userId: String,
+        accessToken: String,
+        limit: Int = 20,
+        mediaTypes: String? = null,
+        includeItemTypes: String? = null
+    ): NetworkResult<List<MediaItem>>
     val resumeItemsFlow: StateFlow<List<MediaItem>>
     val nextUpItemsFlow: StateFlow<List<MediaItem>>
-    fun startResumeItemsSync(userId: String, accessToken: String)
-    fun stopResumeItemsSync()
+    suspend fun refreshResumeItemsFlow(userId: String, accessToken: String)
+    suspend fun refreshNextUpItemsFlow(userId: String, accessToken: String)
     suspend fun getLatestEpisodes(
         userId: String,
         accessToken: String,
         limit: Int = 20
     ): NetworkResult<List<MediaItem>>
     suspend fun getLatestMovies(
+        userId: String,
+        accessToken: String,
+        limit: Int = 20
+    ): NetworkResult<List<MediaItem>>
+    suspend fun getMovies(
+        userId: String,
+        accessToken: String,
+        limit: Int = 20
+    ): NetworkResult<List<MediaItem>>
+    suspend fun getShows(
         userId: String,
         accessToken: String,
         limit: Int = 20
@@ -174,6 +195,16 @@ interface LibraryRepository {
         mediaId: String,
         accessToken: String
     ): NetworkResult<List<Person>>
+    suspend fun getPersonDetail(
+        userId: String,
+        personId: String,
+        accessToken: String
+    ): NetworkResult<MediaItem>
+    suspend fun getPersonAppearances(
+        userId: String,
+        personId: String,
+        accessToken: String
+    ): NetworkResult<List<MediaItem>>
     suspend fun updateFavoriteRemote(
         userId: String,
         mediaId: String,
@@ -199,6 +230,17 @@ interface LibraryRepository {
         accessToken: String,
         isPlayed: Boolean
     ): NetworkResult<Unit>
+    suspend fun requestTranscodingUrl(
+        itemId: String,
+        userId: String,
+        accessToken: String,
+        mediaSourceId: String,
+        audioStreamIndex: Int?,
+        subtitleStreamIndex: Int?,
+        startTimeTicks: Long?,
+        maxStreamingBitrate: Int?,
+        parameters: TranscodeRequestParameters,
+    ): NetworkResult<PlaybackStreamInfo>
     suspend fun setFavoriteLocal(
         userId: String,
         mediaId: String,
@@ -229,7 +271,9 @@ interface LibraryRepository {
     suspend fun getNextUpEpisodes(
         userId: String,
         accessToken: String,
-        limit: Int = 20
+        limit: Int = 20,
+        seriesId: String? = null,
+        disableFirstEpisode: Boolean? = null
     ): NetworkResult<List<MediaItem>>
     suspend fun invalidateNextUp(limit: Int = 20)
     suspend fun getWatchHistory(
@@ -245,18 +289,22 @@ interface LibraryRepository {
     suspend fun reportPlaybackStart(
         mediaId: String,
         userId: String,
-        accessToken: String
+        accessToken: String,
+        playSessionId: String? = null,
     ): NetworkResult<Unit>
     suspend fun reportPlaybackProgress(
         mediaId: String,
         userId: String,
         accessToken: String,
-        positionTicks: Long
+        positionTicks: Long,
+        playSessionId: String? = null,
     ): NetworkResult<Unit>
     suspend fun reportPlaybackStop(
         mediaId: String,
         userId: String,
         accessToken: String,
-        positionTicks: Long
+        positionTicks: Long,
+        playSessionId: String? = null,
+        mediaSourceId: String? = null,
     ): NetworkResult<Unit>
 }

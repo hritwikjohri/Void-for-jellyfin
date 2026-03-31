@@ -16,8 +16,8 @@ android {
         applicationId = "com.hritwik.avoid"
         minSdk = 26
         targetSdk = 36
-        versionCode = 18
-        versionName = "0.2.6m"
+        versionCode = 37
+        versionName = "0.4m"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -54,13 +54,46 @@ android {
         buildConfig = true
     }
 
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.15"
-    }
 
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        jniLibs {
+            pickFirsts += setOf(
+                "lib/arm64-v8a/libavcodec.so",
+                "lib/arm64-v8a/libavdevice.so",
+                "lib/arm64-v8a/libavfilter.so",
+                "lib/arm64-v8a/libavformat.so",
+                "lib/arm64-v8a/libavutil.so",
+                "lib/arm64-v8a/libswresample.so",
+                "lib/arm64-v8a/libswscale.so",
+                "lib/arm64-v8a/libc++_shared.so",
+                "lib/armeabi-v7a/libavcodec.so",
+                "lib/armeabi-v7a/libavdevice.so",
+                "lib/armeabi-v7a/libavfilter.so",
+                "lib/armeabi-v7a/libavformat.so",
+                "lib/armeabi-v7a/libavutil.so",
+                "lib/armeabi-v7a/libswresample.so",
+                "lib/armeabi-v7a/libswscale.so",
+                "lib/armeabi-v7a/libc++_shared.so",
+                "lib/x86/libavcodec.so",
+                "lib/x86/libavdevice.so",
+                "lib/x86/libavfilter.so",
+                "lib/x86/libavformat.so",
+                "lib/x86/libavutil.so",
+                "lib/x86/libswresample.so",
+                "lib/x86/libswscale.so",
+                "lib/x86/libc++_shared.so",
+                "lib/x86_64/libavcodec.so",
+                "lib/x86_64/libavdevice.so",
+                "lib/x86_64/libavfilter.so",
+                "lib/x86_64/libavformat.so",
+                "lib/x86_64/libavutil.so",
+                "lib/x86_64/libswresample.so",
+                "lib/x86_64/libswscale.so",
+                "lib/x86_64/libc++_shared.so"
+            )
         }
     }
 
@@ -76,6 +109,18 @@ android {
             isUniversalApk = true
         }
     }
+}
+
+configurations.configureEach {
+    exclude(group = "androidx.media3", module = "media3-exoplayer")
+    exclude(group = "androidx.media3", module = "media3-extractor")
+    exclude(group = "androidx.media3", module = "media3-common")
+    exclude(group = "androidx.media3", module = "media3-container")
+    exclude(group = "androidx.media3", module = "media3-database")
+    exclude(group = "androidx.media3", module = "media3-datasource")
+    exclude(group = "androidx.media3", module = "media3-datasource-okhttp")
+    exclude(group = "androidx.media3", module = "media3-decoder")
+    exclude(group = "androidx.media3", module = "media3-ui")
 }
 
 dependencies {
@@ -121,19 +166,24 @@ dependencies {
     
     implementation(libs.mpv)
 
-    
-    implementation(libs.androidx.media3.exoplayer)
+    // Custom Media3 stack (aligned with tv-test)
+    implementation(files("libs/lib-common-release.aar"))
+    implementation(files("libs/lib-container-release.aar"))
+    implementation(files("libs/lib-database-release.aar"))
+    implementation(files("libs/lib-datasource-release.aar"))
+    implementation(files("libs/lib-datasource-okhttp-release.aar"))
+    implementation(files("libs/lib-decoder-release.aar"))
+    implementation(files("libs/lib-exoplayer-release.aar"))
+    implementation(files("libs/lib-extractor-release.aar"))
+    implementation(files("libs/lib-decoder-ffmpeg-release.aar"))
+    implementation(files("libs/lib-exoplayer-hls-release.aar"))
+    implementation(files("libs/lib-ui-release.aar"))
+    implementation("com.google.guava:guava:33.3.1-android")
+
     implementation(libs.androidx.media3.exoplayer.dash)
-    implementation(libs.androidx.media3.exoplayer.hls)
     implementation(libs.androidx.media3.exoplayer.smoothstreaming)
     implementation(libs.androidx.media3.exoplayer.rtsp)
     implementation(libs.androidx.media3.session)
-    implementation(libs.androidx.media3.ui)
-    implementation(libs.androidx.media3.common)
-    implementation(libs.androidx.media3.datasource)
-    implementation(libs.androidx.media3.datasource.okhttp)
-    implementation(libs.androidx.media3.decoder)
-    implementation(libs.androidx.media3.extractor)
     implementation(libs.androidx.media3.cast)
     implementation(libs.androidx.media3.effect)
     implementation(libs.androidx.media3.transformer)
@@ -144,7 +194,6 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     implementation(libs.converter.gson)
     implementation(libs.androidx.work.runtime.ktx)
-    implementation(libs.sqlcipher.android)
     implementation(libs.androidx.ui.text.google.fonts)
     implementation(libs.androidx.palette.ktx)
     implementation(libs.androidx.animation)
@@ -157,6 +206,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.service)
     implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.startup.runtime)
+    implementation(libs.androidx.compose.foundation)
     ksp(libs.androidx.room.compiler)
 
     
@@ -180,6 +230,10 @@ dependencies {
 
     implementation(libs.accompanist.systemuicontroller)
     implementation(libs.accompanist.permissions)
+
+    // Google Cast
+    implementation(libs.play.services.cast.framework)
+    implementation(libs.androidx.mediarouter)
 
     
     testImplementation(libs.junit)

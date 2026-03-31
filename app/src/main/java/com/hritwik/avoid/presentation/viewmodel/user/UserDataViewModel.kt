@@ -24,6 +24,7 @@ import com.hritwik.avoid.domain.model.jellyseer.JellyseerConfig
 import com.hritwik.avoid.domain.model.library.MediaItem
 import com.hritwik.avoid.domain.model.playback.DecoderMode
 import com.hritwik.avoid.domain.model.playback.DisplayMode
+import com.hritwik.avoid.domain.model.playback.HdrFormatPreference
 import com.hritwik.avoid.domain.model.playback.PlayerType
 import com.hritwik.avoid.domain.model.playback.PreferredAudioCodec
 import com.hritwik.avoid.domain.model.playback.PreferredVideoCodec
@@ -32,8 +33,8 @@ import com.hritwik.avoid.domain.usecase.jellyseer.LoginToJellyseerUseCase
 import com.hritwik.avoid.domain.usecase.jellyseer.LogoutFromJellyseerUseCase
 import com.hritwik.avoid.presentation.viewmodel.BaseViewModel
 import com.hritwik.avoid.utils.constants.PreferenceConstants
-import com.hritwik.avoid.utils.helpers.ConnectivityObserver
 import com.hritwik.avoid.utils.helpers.normalizeUuid
+import com.hritwik.avoid.data.connection.ServerConnectionManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -73,8 +74,8 @@ class UserDataViewModel @Inject constructor(
     private val cacheManager: CacheManager,
     private val loginToJellyseerUseCase: LoginToJellyseerUseCase,
     private val logoutFromJellyseerUseCase: LogoutFromJellyseerUseCase,
-    connectivityObserver: ConnectivityObserver
-) : BaseViewModel(connectivityObserver) {
+    serverConnectionManager: ServerConnectionManager
+) : BaseViewModel(serverConnectionManager) {
 
     private val cache = RepositoryCache()
     private val json = Json { ignoreUnknownKeys = true }
@@ -263,14 +264,16 @@ class UserDataViewModel @Inject constructor(
             HomeSettings(
                 showFeaturedHeader = false,
                 ambientBackground = true,
-                navigateEpisodesToSeason = true
+                navigateEpisodesToSeason = PreferenceConstants.DEFAULT_NAVIGATE_EPISODES_TO_SEASON
             )
         )
 
     data class PlaybackSettings(
         val playThemeSongs: Boolean,
+        val themeSongFallbackUrl: String,
         val displayMode: DisplayMode,
         val decoderMode: DecoderMode,
+        val hdrFormatPreference: HdrFormatPreference,
         val playerType: PlayerType,
         val preferredVideoCodec: PreferredVideoCodec,
         val preferredAudioCodec: PreferredAudioCodec,
@@ -281,8 +284,10 @@ class UserDataViewModel @Inject constructor(
     val playbackSettings: StateFlow<PlaybackSettings> =
         combine(
             preferencesManager.getPlayThemeSongs(),
+            preferencesManager.getThemeSongFallbackUrl(),
             preferencesManager.getDisplayMode(),
             preferencesManager.getDecoderMode(),
+            preferencesManager.getHdrFormatPreference(),
             preferencesManager.getPlayerType(),
             preferencesManager.getPreferredVideoCodec(),
             preferencesManager.getPreferredAudioCodec(),
@@ -290,18 +295,22 @@ class UserDataViewModel @Inject constructor(
             preferencesManager.getAutoSkipSegments()
         ) { values ->
             val playTheme = values[0] as Boolean
-            val display = values[1] as DisplayMode
-            val decoder = values[2] as DecoderMode
-            val playerType = values[3] as PlayerType
-            val videoCodec = values[4] as PreferredVideoCodec
-            val audioCodec = values[5] as PreferredAudioCodec
-            val autoPlayNext = values[6] as Boolean
-            val autoSkip = values[7] as Boolean
+            val fallbackUrl = values[1] as String
+            val display = values[2] as DisplayMode
+            val decoder = values[3] as DecoderMode
+            val hdrPreference = values[4] as HdrFormatPreference
+            val playerType = values[5] as PlayerType
+            val videoCodec = values[6] as PreferredVideoCodec
+            val audioCodec = values[7] as PreferredAudioCodec
+            val autoPlayNext = values[8] as Boolean
+            val autoSkip = values[9] as Boolean
 
             PlaybackSettings(
                 playTheme,
+                fallbackUrl,
                 display,
                 decoder,
+                hdrPreference,
                 playerType,
                 videoCodec,
                 audioCodec,
@@ -313,8 +322,10 @@ class UserDataViewModel @Inject constructor(
             SharingStarted.Eagerly,
             PlaybackSettings(
                 false,
+                PreferenceConstants.DEFAULT_THEME_SONG_FALLBACK_URL,
                 DisplayMode.FIT_SCREEN,
                 DecoderMode.fromValue(PreferenceConstants.DEFAULT_DECODER_MODE),
+                HdrFormatPreference.fromValue(PreferenceConstants.DEFAULT_HDR_FORMAT_PREFERENCE),
                 PlayerType.fromValue(PreferenceConstants.DEFAULT_PLAYER_TYPE),
                 PreferredVideoCodec.fromPreferenceValue(PreferenceConstants.DEFAULT_PREFERRED_VIDEO_CODEC),
                 PreferredAudioCodec.fromPreferenceValue(PreferenceConstants.DEFAULT_PREFERRED_AUDIO_CODEC),
@@ -340,7 +351,7 @@ class UserDataViewModel @Inject constructor(
         storageLocation = PreferenceConstants.DEFAULT_DOWNLOAD_LOCATION,
     )
 
-    
+
     private val wifiOnlyFlow = preferencesManager.getDownloadWifiOnly()
         .onStart { emit(true) }
         .catch { emit(true) }
@@ -409,6 +420,22 @@ class UserDataViewModel @Inject constructor(
             )
         )
 
+    val tmdbEnabled: StateFlow<Boolean> =
+        preferencesManager.getTmdbEnabled()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, PreferenceConstants.DEFAULT_TMDB_ENABLED)
+
+    val tmdbApiKey: StateFlow<String> =
+        preferencesManager.getTmdbApiKey()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, PreferenceConstants.DEFAULT_TMDB_API_KEY)
+
+    val playerProgressColor: StateFlow<String> =
+        preferencesManager.getPlayerProgressColor()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, PreferenceConstants.DEFAULT_PLAYER_PROGRESS_COLOR)
+
+    val playerProgressSeekColor: StateFlow<String> =
+        preferencesManager.getPlayerProgressSeekColor()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, PreferenceConstants.DEFAULT_PLAYER_PROGRESS_SEEK_COLOR)
+
     val jellyseerSettings: StateFlow<JellyseerConfig> =
         preferencesManager.getJellyseerConfig()
             .stateIn(
@@ -445,6 +472,10 @@ class UserDataViewModel @Inject constructor(
         viewModelScope.launch { preferencesManager.savePlayThemeSongs(enabled) }
     }
 
+    fun setThemeSongFallbackUrl(url: String) {
+        viewModelScope.launch { preferencesManager.saveThemeSongFallbackUrl(url) }
+    }
+
     fun setDisplayMode(mode: DisplayMode) {
         viewModelScope.launch { preferencesManager.saveDisplayMode(mode) }
     }
@@ -453,12 +484,32 @@ class UserDataViewModel @Inject constructor(
         viewModelScope.launch { preferencesManager.saveDecoderMode(mode) }
     }
 
+    fun setHdrFormatPreference(preference: HdrFormatPreference) {
+        viewModelScope.launch { preferencesManager.saveHdrFormatPreference(preference) }
+    }
+
     fun setPreferredVideoCodec(codec: PreferredVideoCodec) {
         viewModelScope.launch { preferencesManager.savePreferredVideoCodec(codec) }
     }
 
     fun setPreferredAudioCodec(codec: PreferredAudioCodec) {
         viewModelScope.launch { preferencesManager.savePreferredAudioCodec(codec) }
+    }
+
+    fun setTmdbEnabled(enabled: Boolean) {
+        viewModelScope.launch { preferencesManager.saveTmdbEnabled(enabled) }
+    }
+
+    fun setTmdbApiKey(apiKey: String) {
+        viewModelScope.launch { preferencesManager.saveTmdbApiKey(apiKey) }
+    }
+
+    fun setPlayerProgressColor(colorKey: String) {
+        viewModelScope.launch { preferencesManager.savePlayerProgressColor(colorKey) }
+    }
+
+    fun setPlayerProgressSeekColor(colorKey: String) {
+        viewModelScope.launch { preferencesManager.savePlayerProgressSeekColor(colorKey) }
     }
 
     fun setPlayerType(playerType: PlayerType) {
@@ -476,12 +527,6 @@ class UserDataViewModel @Inject constructor(
     fun updateJellyseerBaseUrl(url: String) {
         viewModelScope.launch {
             preferencesManager.updateJellyseerBaseUrl(url)
-        }
-    }
-
-    fun updateJellyseerApiKey(apiKey: String) {
-        viewModelScope.launch {
-            preferencesManager.updateJellyseerApiKey(apiKey)
         }
     }
 
@@ -610,6 +655,11 @@ class UserDataViewModel @Inject constructor(
         return true
     }
 
+    fun clearImageCache() {
+        cacheManager.clearImageCache()
+        cacheManager.clearPosterCache()
+    }
+
     fun clearDownloads() {
         viewModelScope.launch(Dispatchers.IO) {
             val activeIds = serviceManager.downloads.value.keys.toList()
@@ -699,7 +749,7 @@ class UserDataViewModel @Inject constructor(
             }
         }
 
-        
+
         viewModelScope.launch {
             when (cache.get("favorites_$userId") {
                 libraryRepository.getFavoriteItems(userId, accessToken, 50)

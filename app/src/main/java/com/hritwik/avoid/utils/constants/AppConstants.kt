@@ -10,6 +10,7 @@ object AppConstants {
     const val DISK_CACHE_SIZE_PERCENT = 0.02
     const val DEFAULT_PAGE_SIZE = 50
     const val SMALL_PAGE_SIZE = 20
+    const val HOME_SCREEN_LIMIT = 10  // Optimized limit for home screen sections
     const val LARGE_PAGE_SIZE = 100
     const val NETWORK_TIMEOUT_SECONDS = 30L
     const val IMAGE_TIMEOUT_SECONDS = 15L
@@ -26,9 +27,12 @@ object AppConstants {
     const val POSTER_ASPECT_RATIO = 3f / 4f
     const val THUMBNAIL_ASPECT_RATIO = 16f / 9f
     const val SQUARE_ASPECT_RATIO = 1f
+    const val RESUME_THRESHOLD = 10_000_000L
     const val RESUME_COMPLETION_THRESHOLD = 10_000_000L
     const val TMDB_BACKDROP_BASE = "https://image.tmdb.org/t/p/w780"
     const val TMDB_POSTER_BASE = "https://image.tmdb.org/t/p/w500"
     const val TMDB_PROFILE_BASE = "https://image.tmdb.org/t/p/w185"
     const val TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500"
+    const val THRESHOLD = 10_000_000L
+    const val DEFAULT_NEXT_UP_LIMIT = 20
 }

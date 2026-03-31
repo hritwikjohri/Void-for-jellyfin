@@ -16,10 +16,6 @@ import kotlinx.coroutines.SupervisorJob
 @Retention(AnnotationRetention.RUNTIME)
 annotation class ApplicationScope
 
-@Qualifier
-@Retention(AnnotationRetention.RUNTIME)
-annotation class WebSocketScope
-
 @Module
 @InstallIn(SingletonComponent::class)
 object CoroutineModule {
@@ -27,11 +23,6 @@ object CoroutineModule {
     @Singleton
     @ApplicationScope
     fun provideApplicationScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-
-    @Provides
-    @Singleton
-    @WebSocketScope
-    fun provideWebSocketScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 }
 
 @EntryPoint

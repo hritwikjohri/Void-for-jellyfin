@@ -172,7 +172,7 @@ fun HomeSectionPlaceholder(
 }
 
 @Composable
-private fun MediaCardPlaceholder(
+fun MediaCardPlaceholder(
     cardType: MediaCardType,
     showTitle: Boolean
 ) {
@@ -220,7 +220,7 @@ private fun MediaCardPlaceholder(
 }
 
 @Composable
-private fun PlaceholderBox(
+fun PlaceholderBox(
     modifier: Modifier,
     cornerRadius: Dp
 ) {

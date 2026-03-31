@@ -11,8 +11,6 @@ import com.hritwik.avoid.presentation.ui.screen.home.HomeScreen
 import com.hritwik.avoid.presentation.viewmodel.auth.AuthServerViewModel
 import com.hritwik.avoid.presentation.viewmodel.library.LibraryViewModel
 import com.hritwik.avoid.presentation.viewmodel.user.UserDataViewModel
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 
 fun NavGraphBuilder.homeGraph(
     navController: NavHostController,
@@ -25,21 +23,6 @@ fun NavGraphBuilder.homeGraph(
         val homeSettings by userDataViewModel.homeSettings.collectAsStateWithLifecycle()
         val navigateEpisodesToSeason = homeSettings.navigateEpisodesToSeason
         HomeScreen(
-            onPlayClick = { mediaItem ->
-                scope.launch {
-                    val startPosition = (mediaItem.userData?.playbackPositionTicks ?: 0L) / 10_000
-                    val prefs = userDataViewModel.getPlaybackPreferences(mediaItem.id).first()
-                    navController.navigate(
-                        Routes.videoPlayer(
-                            mediaId = mediaItem.id,
-                            mediaSourceId = prefs?.mediaSourceId,
-                            audioStreamIndex = prefs?.audioIndex,
-                            subtitleStreamIndex = prefs?.subtitleIndex,
-                            startPosition = startPosition
-                        )
-                    )
-                }
-            },
             onMediaItemClick = { mediaItem ->
                 when {
                     mediaItem.type.equals("Episode", ignoreCase = true) -> {

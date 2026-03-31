@@ -11,10 +11,13 @@ data class MediaStream(
     val index: Int,
     val type: MediaStreamType,
     val codec: String?,
+    val profile: String? = null,
     val language: String?,
     val displayLanguage: String?,
     val title: String?,
     val displayTitle: String?,
+    val videoRange: String? = null,
+    val videoRangeType: String? = null,
     val isDefault: Boolean,
     val isForced: Boolean,
     val isExternal: Boolean,
@@ -33,6 +36,35 @@ data class MediaStream(
 
     val videoQuality: VideoQuality?
         get() = VideoQuality.fromDimensions(width, height)
+
+    val dynamicRangeLabel: String
+        get() {
+            val normalizedType = videoRangeType
+                ?.replace("_", "")
+                ?.replace("-", "")
+                ?.uppercase()
+
+            when (normalizedType) {
+                "SDR" -> return "SDR"
+                "HDR10" -> return "HDR10"
+                "HDR10PLUS" -> return "HDR10+"
+                "HLG" -> return "HLG"
+                "DOVI" -> return "DoVi"
+                "DOVIWITHHDR10" -> return "DoVi/HDR10"
+                "DOVIWITHHLG" -> return "DoVi/HLG"
+                "DOVIWITHSDR" -> return "DoVi/SDR"
+                "DOVIWITHEL" -> return "DoVi EL"
+                "DOVIWITHHDR10PLUS" -> return "DoVi/HDR10+"
+                "DOVIWITHELHDR10PLUS" -> return "DoVi EL/HDR10+"
+                "DOVIINVALID" -> return "DoVi"
+            }
+
+            return when (videoRange?.uppercase()) {
+                "HDR" -> "HDR"
+                "SDR" -> "SDR"
+                else -> "SDR"
+            }
+        }
 
     
     val audioDescription: String

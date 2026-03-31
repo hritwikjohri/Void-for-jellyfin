@@ -13,7 +13,6 @@ import com.hritwik.avoid.domain.model.library.MediaItem
 import com.hritwik.avoid.domain.model.jellyseer.JellyseerConfig
 import com.hritwik.avoid.domain.model.jellyseer.JellyseerSearchResult
 import com.hritwik.avoid.domain.provider.AuthSessionProvider
-import com.hritwik.avoid.domain.usecase.search.GetSearchSuggestionsUseCase
 import com.hritwik.avoid.domain.usecase.search.SearchItemsUseCase
 import com.hritwik.avoid.domain.usecase.jellyseer.SearchJellyseerMediaUseCase
 import com.hritwik.avoid.presentation.ui.state.SearchFilters
@@ -33,6 +32,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import javax.inject.Inject
 
 @OptIn(FlowPreview::class)
@@ -40,7 +40,6 @@ import javax.inject.Inject
 class SearchViewModel @Inject constructor(
     private val searchItemsUseCase: SearchItemsUseCase,
     private val authSessionProvider: AuthSessionProvider,
-    private val getSearchSuggestionsUseCase: GetSearchSuggestionsUseCase,
     private val preferencesManager: PreferencesManager,
     private val searchJellyseerMediaUseCase: SearchJellyseerMediaUseCase
 ) : ViewModel() {
@@ -56,6 +55,8 @@ class SearchViewModel @Inject constructor(
     private val _jellyseerConfig = MutableStateFlow(JellyseerConfig())
     private var lastSearchedQuery: String = ""
     private var authSession: AuthSession? = null
+    private var activeSearchPagingSource: SearchPagingSource? = null
+    private var activeJellyseerPagingSource: JellyseerSearchPagingSource? = null
 
     private val searchDebounceMs = 300L
 
@@ -74,7 +75,9 @@ class SearchViewModel @Inject constructor(
                     accessToken = session.accessToken,
                     query = query,
                     itemTypes = filters.toItemTypes()
-                )
+                ).also { pagingSource ->
+                    activeSearchPagingSource = pagingSource
+                }
             }.flow
         }
         .cachedIn(viewModelScope)
@@ -92,7 +95,9 @@ class SearchViewModel @Inject constructor(
                     query = query,
                     onError = { setJellyseerError(it) },
                     onSuccess = { clearJellyseerError() }
-                )
+                ).also { pagingSource ->
+                    activeJellyseerPagingSource = pagingSource
+                }
             }.flow
         }
         .cachedIn(viewModelScope)
@@ -128,19 +133,15 @@ class SearchViewModel @Inject constructor(
     }
 
     fun updateSearchQuery(query: String) {
+        activeSearchPagingSource?.invalidate()
+        activeJellyseerPagingSource?.invalidate()
         _searchQuery.value = query
         _searchState.update { state ->
-            val baseState = state.copy(
+            state.copy(
                 searchQuery = query,
-                isSearchActive = query.isNotBlank(),
-                suggestionsError = null,
+                isSearchActive = query.length >= 2,
                 isJellyseerSearchEnabled = _useJellyseer.value && _jellyseerConfig.value.isConfigured
             )
-            if (_useJellyseer.value) {
-                baseState.copy(suggestions = emptyList())
-            } else {
-                baseState.copy(suggestions = if (query.isBlank()) emptyList() else state.suggestions)
-            }
         }
         if (query.isBlank()) {
             lastSearchedQuery = ""
@@ -148,52 +149,18 @@ class SearchViewModel @Inject constructor(
         }
     }
 
-    fun fetchSearchSuggestions(query: String, userId: String, accessToken: String, limit: Int = 10) {
-        if (_useJellyseer.value) {
-            return
-        }
-        if (query.isBlank()) {
-            _searchState.value = _searchState.value.copy(suggestions = emptyList(), suggestionsError = null)
-            return
-        }
-        viewModelScope.launch {
-            when (val result = getSearchSuggestionsUseCase(
-                GetSearchSuggestionsUseCase.Params(
-                    userId = userId,
-                    accessToken = accessToken,
-                    query = query,
-                    limit = limit
-                )
-            )) {
-                is NetworkResult.Success -> {
-                    _searchState.value = _searchState.value.copy(
-                        suggestions = result.data,
-                        suggestionsError = null
-                    )
-                }
-                is NetworkResult.Error -> {
-                    _searchState.value = _searchState.value.copy(
-                        suggestions = emptyList(),
-                        suggestionsError = result.message
-                    )
-                }
-                is NetworkResult.Loading -> {}
-            }
-        }
-    }
-
     fun performImmediateSearch(query: String) {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return
 
+        activeSearchPagingSource?.invalidate()
+        activeJellyseerPagingSource?.invalidate()
         _searchQuery.value = trimmed
         clearJellyseerError()
         _searchState.update { state ->
             state.copy(
                 searchQuery = trimmed,
-                isSearchActive = true,
-                suggestions = emptyList(),
-                suggestionsError = null,
+                isSearchActive = trimmed.length >= 2,
                 isJellyseerSearchEnabled = _useJellyseer.value && _jellyseerConfig.value.isConfigured
             )
         }
@@ -214,8 +181,6 @@ class SearchViewModel @Inject constructor(
         _searchState.update { state ->
             state.copy(
                 isJellyseerSearchEnabled = newValue,
-                suggestions = if (newValue) emptyList() else state.suggestions,
-                suggestionsError = null,
                 jellyseerError = null
             )
         }
@@ -235,8 +200,6 @@ class SearchViewModel @Inject constructor(
         _searchState.update { state ->
             state.copy(
                 searchQuery = "",
-                suggestions = emptyList(),
-                suggestionsError = null,
                 isSearchActive = false,
                 error = null,
                 jellyseerError = null,
@@ -321,7 +284,11 @@ private class SearchPagingSource(
 ) : androidx.paging.PagingSource<Int, MediaItem>() {
 
     override suspend fun load(params: LoadParams<Int>): LoadResult<Int, MediaItem> {
-        val startIndex = params.key ?: 0
+        val page = params.key ?: 0
+        if (page == 0) {
+            delay(300)
+        }
+        val startIndex = page * params.loadSize
         return when (val result = searchItemsUseCase(
             SearchItemsUseCase.Params(
                 userId = userId,
@@ -333,10 +300,10 @@ private class SearchPagingSource(
             )
         )) {
             is NetworkResult.Success -> {
-                val nextKey = if (result.data.isEmpty()) null else startIndex + result.data.size
+                val nextKey = if (result.data.isEmpty()) null else page + 1
                 LoadResult.Page(
                     data = result.data,
-                    prevKey = if (startIndex == 0) null else maxOf(0, startIndex - params.loadSize),
+                    prevKey = if (page == 0) null else page - 1,
                     nextKey = nextKey
                 )
             }
@@ -346,23 +313,13 @@ private class SearchPagingSource(
     }
 
     override fun getRefreshKey(state: androidx.paging.PagingState<Int, MediaItem>): Int? {
-        val anchorPosition = state.anchorPosition ?: return null
-        val anchorPage = state.closestPageToPosition(anchorPosition) ?: return null
-
-        anchorPage.nextKey?.let { nextKey ->
-            val calculatedStart = nextKey - anchorPage.data.size
-            if (calculatedStart >= 0) {
-                return calculatedStart
-            }
+        return state.anchorPosition?.let { position ->
+            state.closestPageToPosition(position)?.prevKey?.plus(1)
+                ?: state.closestPageToPosition(position)?.nextKey?.minus(1)
         }
-
-        anchorPage.prevKey?.let { prevKey ->
-            return maxOf(0, prevKey + state.config.pageSize)
-        }
-
-        return null
     }
 }
+
 
 private class JellyseerSearchPagingSource(
     private val searchUseCase: SearchJellyseerMediaUseCase,

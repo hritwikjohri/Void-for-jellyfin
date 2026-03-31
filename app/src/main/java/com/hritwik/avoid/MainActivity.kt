@@ -3,8 +3,8 @@ package com.hritwik.avoid
 import android.annotation.SuppressLint
 import android.content.pm.ActivityInfo
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,16 +25,13 @@ import com.hritwik.avoid.utils.constants.PreferenceConstants
 import com.hritwik.avoid.utils.extensions.ProvideFontScale
 import com.hritwik.avoid.utils.helpers.ImageHelper
 import com.hritwik.avoid.utils.helpers.LocalImageHelper
-import com.hritwik.avoid.utils.helpers.NetworkMonitor
 import com.hritwik.avoid.utils.helpers.hideNavigationButtons
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
-    @Inject
-    lateinit var networkMonitor: NetworkMonitor
+class MainActivity : AppCompatActivity() {
     @Inject
     lateinit var imageHelper: ImageHelper
     @Inject
@@ -46,6 +43,7 @@ class MainActivity : ComponentActivity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         configureSystemBars()
         enableEdgeToEdge()
+        initializePrefetch()
         setContent {
             val firstRunCompleted by preferencesManager.isFirstRunCompleted().collectAsState(initial = true)
             val themeMode by preferencesManager.getThemeMode().collectAsState(initial = PreferenceConstants.DEFAULT_THEME_MODE)
@@ -84,5 +82,11 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
         windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    }
+
+    /**
+     * Prefetch disabled so Home always pulls fresh data and images.
+     */
+    private fun initializePrefetch() {
     }
 }

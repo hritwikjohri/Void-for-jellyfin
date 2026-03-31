@@ -3,6 +3,7 @@ package com.hritwik.avoid.data.network
 import com.hritwik.avoid.utils.constants.AppConstants
 import javax.inject.Inject
 import javax.inject.Singleton
+import okhttp3.HttpUrl
 import okhttp3.Interceptor
 import okhttp3.Response
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -16,7 +17,7 @@ class CdnInterceptor @Inject constructor() : Interceptor {
         val originalRequest = chain.request()
         val url = originalRequest.url
 
-        if (!isMediaRequest(url.encodedPath)) {
+        if (!shouldRewriteToCdn(url)) {
             return chain.proceed(originalRequest)
         }
 
@@ -30,11 +31,24 @@ class CdnInterceptor @Inject constructor() : Interceptor {
         return chain.proceed(cdnRequest)
     }
 
-    private fun isMediaRequest(path: String): Boolean {
-        val lower = path.lowercase()
-        return lower.endsWith(".jpg") || lower.endsWith(".jpeg") ||
-               lower.endsWith(".png") || lower.endsWith(".webp") ||
-               lower.endsWith(".mp4") || lower.endsWith(".mkv") ||
-               lower.contains("/images/") || lower.contains("/videos/")
+    private fun shouldRewriteToCdn(url: HttpUrl): Boolean {
+        if (url.host.equals(cdnBaseUrl.host, ignoreCase = true)) {
+            return false
+        }
+
+        val segments = url.pathSegments
+            .filter { it.isNotEmpty() }
+            .map { it.lowercase() }
+
+        val lastSegment = segments.lastOrNull()
+        val containsVideosSegment = segments.contains("videos")
+        if (containsVideosSegment && lastSegment?.startsWith("stream") == true) {
+            return false
+        }
+
+        val path = url.encodedPath.lowercase()
+        return path.endsWith(".jpg") || path.endsWith(".jpeg") ||
+            path.endsWith(".png") || path.endsWith(".webp") ||
+            path.endsWith(".mp4") || path.endsWith(".mkv")
     }
 }

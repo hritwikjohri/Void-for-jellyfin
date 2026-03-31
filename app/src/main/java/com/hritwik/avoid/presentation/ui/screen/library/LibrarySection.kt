@@ -32,6 +32,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hritwik.avoid.presentation.ui.components.common.states.EmptyState
 import com.hritwik.avoid.presentation.ui.components.layout.SectionHeader
 import com.hritwik.avoid.presentation.ui.components.media.LibraryGridCard
+import com.hritwik.avoid.presentation.ui.components.media.LibraryGridCardSkeleton
 import com.hritwik.avoid.presentation.ui.components.visual.AnimatedAmbientBackground
 import com.hritwik.avoid.presentation.ui.theme.PrimaryText
 import com.hritwik.avoid.presentation.viewmodel.auth.AuthServerViewModel
@@ -61,35 +62,45 @@ fun LibrarySection(
                 description = "Looks like you don't have a stable internet connection."
             )
         } else {
-            if (libraryState.libraries.isNotEmpty()) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(calculateRoundedValue(10).sdp),
-                    verticalArrangement = Arrangement.spacedBy(calculateRoundedValue(8).sdp)
-                ) {
-                    item {
-                        Spacer(modifier = Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
-                    }
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(calculateRoundedValue(10).sdp),
+                verticalArrangement = Arrangement.spacedBy(calculateRoundedValue(8).sdp)
+            ) {
+                item {
+                    Spacer(modifier = Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
+                }
 
-                    item {
-                        SectionHeader(
-                            title = "Your Libraries",
-                            subtitle = "Explore your saved libraries",
-                            actionButton = {
-                                IconButton(
-                                    onClick = onSearchClick
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Search,
-                                        contentDescription = "Search",
-                                        tint = PrimaryText,
-                                        modifier = Modifier.size(calculateRoundedValue(28).sdp)
-                                    )
-                                }
+                item {
+                    SectionHeader(
+                        title = "Your Libraries",
+                        subtitle = "Explore your saved libraries",
+                        actionButton = {
+                            IconButton(
+                                onClick = onSearchClick
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Search",
+                                    tint = PrimaryText,
+                                    modifier = Modifier.size(calculateRoundedValue(28).sdp)
+                                )
                             }
-                        )
-                    }
+                        }
+                    )
+                }
 
+                if (libraryState.isLoading && libraryState.libraries.isEmpty()) {
+                    items(3) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(calculateRoundedValue(16).sdp)
+                        ) {
+                            LibraryGridCardSkeleton(modifier = Modifier.weight(1f))
+                            LibraryGridCardSkeleton(modifier = Modifier.weight(1f))
+                        }
+                    }
+                } else if (libraryState.libraries.isNotEmpty()) {
                     items(libraryState.libraries.chunked(2)) { libraryRow ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -109,25 +120,27 @@ fun LibrarySection(
                             }
                         }
                     }
-                }
-            } else {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.LibraryAdd,
-                        contentDescription = "Add LibrarySection",
-                        modifier = Modifier.size(calculateRoundedValue(80).sdp)
-                    )
+                } else {
+                    item {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.LibraryAdd,
+                                contentDescription = "Add LibrarySection",
+                                modifier = Modifier.size(calculateRoundedValue(80).sdp)
+                            )
 
-                    Spacer(modifier = Modifier.height(calculateRoundedValue(10).sdp))
+                            Spacer(modifier = Modifier.height(calculateRoundedValue(10).sdp))
 
-                    Text(
-                        text = "No LibrarySection found!",
-                        style = MaterialTheme.typography.headlineSmall
-                    )
+                            Text(
+                                text = "No LibrarySection found!",
+                                style = MaterialTheme.typography.headlineSmall
+                            )
+                        }
+                    }
                 }
             }
         }

@@ -1,10 +1,12 @@
 package com.hritwik.avoid.di
 
+import com.hritwik.avoid.data.repository.ActivityLogRepositoryImpl
 import com.hritwik.avoid.data.repository.AuthRepositoryImpl
 import com.hritwik.avoid.data.repository.DownloadRepositoryImpl
 import com.hritwik.avoid.data.repository.JellyseerRepositoryImpl
 import com.hritwik.avoid.data.repository.LibraryRepositoryImpl
 import com.hritwik.avoid.data.repository.SearchRepositoryImpl
+import com.hritwik.avoid.domain.repository.ActivityLogRepository
 import com.hritwik.avoid.domain.repository.AuthRepository
 import com.hritwik.avoid.domain.repository.DownloadRepository
 import com.hritwik.avoid.domain.repository.JellyseerRepository
@@ -49,4 +51,10 @@ abstract class RepositoryModule {
     abstract fun bindJellyseerRepository(
         jellyseerRepositoryImpl: JellyseerRepositoryImpl
     ): JellyseerRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindActivityLogRepository(
+        activityLogRepositoryImpl: ActivityLogRepositoryImpl
+    ): ActivityLogRepository
 }

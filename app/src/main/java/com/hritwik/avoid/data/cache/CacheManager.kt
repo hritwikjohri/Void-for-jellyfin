@@ -45,6 +45,7 @@ class CacheManager @OptIn(UnstableApi::class)
 
     fun clearImageCache() {
         imageLoader.diskCache?.clear()
+        imageLoader.memoryCache?.clear()
     }
 
     fun clearPosterCache() {

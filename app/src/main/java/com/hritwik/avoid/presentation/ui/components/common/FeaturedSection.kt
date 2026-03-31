@@ -68,7 +68,10 @@ fun FeaturedPagerSection(
     onPlayClick: (MediaItem) -> Unit,
     modifier: Modifier = Modifier,
     autoScroll: Boolean = true,
-    autoScrollDelayMs: Long = 10000L
+    autoScrollDelayMs: Long = 10000L,
+    shouldLoadImages: Boolean = true,
+    bypassCache: Boolean = false,
+    authToken: String? = null
 ) {
     if (mediaItems.isEmpty()) return
 
@@ -107,7 +110,8 @@ fun FeaturedPagerSection(
             Box(
                 modifier = Modifier.fillMaxSize()
             ) {
-                val backdropUrl = remember(serverUrl, mediaItem.id, mediaItem.backdropImageTags) {
+                val backdropUrl = remember(serverUrl, mediaItem.id, mediaItem.backdropImageTags, shouldLoadImages) {
+                    if (!shouldLoadImages) return@remember null
                     imageHelper.createBackdropUrl(
                         serverUrl,
                         mediaItem.id,
@@ -127,7 +131,9 @@ fun FeaturedPagerSection(
                                 fraction = 1f - pageOffset.absoluteValue.coerceIn(0f, 1f)
                             )
                         },
-                    contentScale = ContentScale.Crop
+                    contentScale = ContentScale.Crop,
+                    disableCache = bypassCache,
+                    authToken = authToken
                 )
 
                 Box(
@@ -161,6 +167,8 @@ fun FeaturedPagerSection(
                     onPlayClick = onPlayClick,
                     onMoreClick = { onMediaClick(mediaItem) },
                     pageOffset = pageOffset,
+                    bypassCache = bypassCache,
+                    authToken = authToken,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -225,6 +233,8 @@ private fun FeaturedContentCard(
     onPlayClick: (MediaItem) -> Unit,
     onMoreClick: () -> Unit,
     pageOffset: Float,
+    bypassCache: Boolean,
+    authToken: String?,
     modifier: Modifier = Modifier
 ) {
     val scale by animateFloatAsState(
@@ -263,7 +273,9 @@ private fun FeaturedContentCard(
                 data = posterUrl,
                 contentDescription = mediaItem.name,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.Crop,
+                disableCache = bypassCache,
+                authToken = authToken
             )
         }
 

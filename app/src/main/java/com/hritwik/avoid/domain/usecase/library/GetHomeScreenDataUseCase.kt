@@ -14,7 +14,7 @@ class GetHomeScreenDataUseCase @Inject constructor(
     data class Params(
         val userId: String,
         val accessToken: String,
-        val sectionLimit: Int = 20
+        val sectionLimit: Int = 10  // Reduced from 20 to 10 for better initial load performance
     )
 
     override suspend fun execute(parameters: Params): NetworkResult<HomeScreenData> {

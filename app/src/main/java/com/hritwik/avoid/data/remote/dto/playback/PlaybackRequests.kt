@@ -20,7 +20,8 @@ data class PlaybackProgressRequest(
     @SerialName("PositionTicks") val positionTicks: Long,
     @SerialName("IsPaused") val isPaused: Boolean = false,
     @SerialName("CanSeek") val canSeek: Boolean = true,
-    @SerialName("PlaySessionId") val playSessionId: String? = null
+    @SerialName("PlaySessionId") val playSessionId: String? = null,
+    @SerialName("MediaSourceId") val mediaSourceId: String? = null
 )
 
 
@@ -28,5 +29,6 @@ data class PlaybackProgressRequest(
 data class PlaybackStopRequest(
     @SerialName("ItemId") val itemId: String,
     @SerialName("PositionTicks") val positionTicks: Long,
-    @SerialName("PlaySessionId") val playSessionId: String? = null
+    @SerialName("PlaySessionId") val playSessionId: String? = null,
+    @SerialName("MediaSourceId") val mediaSourceId: String? = null
 )

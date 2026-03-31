@@ -28,14 +28,5 @@ interface SearchRepository {
         forceRefresh: Boolean = false
     ): NetworkResult<List<MediaItem>>
 
-    
-    suspend fun getSearchSuggestions(
-        userId: String,
-        accessToken: String,
-        query: String,
-        limit: Int = 10
-    ): NetworkResult<List<String>>
-
-    
     suspend fun invalidateSearchResults(query: String, filters: Map<String, String>)
 }

@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DisplaySettings
 import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
@@ -25,7 +26,6 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.VideoSettings
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -48,7 +48,6 @@ import com.hritwik.avoid.utils.extensions.formatTime
 import com.hritwik.avoid.utils.helpers.calculateRoundedValue
 import ir.kaaveh.sdpcompose.sdp
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun VideoControlsOverlay(
     mediaTitle: String,
@@ -75,14 +74,23 @@ fun VideoControlsOverlay(
     onSubtitleClick: (() -> Unit)? = null,
     onDecoderClick: (() -> Unit)? = null,
     onDisplayClick: (() -> Unit)? = null,
-    onPipClick: (() -> Unit)? = null
+    onPipClick: (() -> Unit)? = null,
+    onLockClick: (() -> Unit)? = null,
+    progressBarColor: Color = Minsk,
+    seekProgressColor: Color? = null,
+    isSeeking: Boolean = false
 ) {
     var showSpeedDialog by remember { mutableStateOf(false) }
+    val progressColor = if (isSeeking) {
+        seekProgressColor ?: progressBarColor
+    } else {
+        progressBarColor
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.5f))
+            .background(Color.Black.copy(alpha = 0.25f))
     ) {
         if (showSpeedDialog) {
             SpeedSelectionDialog(
@@ -124,7 +132,7 @@ fun VideoControlsOverlay(
                 modifier = Modifier.weight(1f)
             )
 
-            
+
             TextButton(onClick = { showSpeedDialog = true }) {
                 Text(text = "${speed}x", color = Color.White)
             }
@@ -188,9 +196,19 @@ fun VideoControlsOverlay(
                     )
                 }
             }
+
+            onLockClick?.let { handler ->
+                IconButton(onClick = handler) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "Lock screen",
+                        tint = Color.White
+                    )
+                }
+            }
         }
 
-        
+
         Row(
             modifier = Modifier.align(Alignment.Center),
             horizontalArrangement = Arrangement.spacedBy(calculateRoundedValue(48).sdp),
@@ -294,7 +312,7 @@ fun VideoControlsOverlay(
                 }
             }
 
-            
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -319,7 +337,7 @@ fun VideoControlsOverlay(
                     .fillMaxWidth()
                     .padding(bottom = calculateRoundedValue(8).sdp),
                 trackColor = SeekBarBackground,
-                color = Minsk
+                color = progressColor
             )
         }
     }

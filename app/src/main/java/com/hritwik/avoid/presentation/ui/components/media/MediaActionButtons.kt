@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.FavoriteBorder
@@ -52,34 +53,27 @@ import androidx.media3.common.util.UnstableApi
 import com.hritwik.avoid.core.ServiceManagerEntryPoint
 import com.hritwik.avoid.data.download.DownloadService.DownloadInfo
 import com.hritwik.avoid.data.download.DownloadService.DownloadStatus
-import com.hritwik.avoid.domain.model.download.DownloadCodec
 import com.hritwik.avoid.domain.model.download.DownloadQuality
 import com.hritwik.avoid.domain.model.download.DownloadRequest
+import com.hritwik.avoid.domain.model.download.DownloadScope
 import com.hritwik.avoid.domain.model.library.MediaItem
 import com.hritwik.avoid.domain.model.media.PlaybackOptions
 import com.hritwik.avoid.domain.model.playback.PlaybackInfo
 import com.hritwik.avoid.presentation.ui.components.dialogs.AudioTrackDialog
-import com.hritwik.avoid.presentation.ui.components.dialogs.SelectionDialog
 import com.hritwik.avoid.presentation.ui.components.dialogs.SelectionItem
 import com.hritwik.avoid.presentation.ui.components.dialogs.SubtitleDialog
 import com.hritwik.avoid.presentation.ui.components.dialogs.VersionSelectionDialog
 import com.hritwik.avoid.presentation.ui.components.dialogs.VideoQualityDialog
+import com.hritwik.avoid.presentation.ui.components.dialogs.VoidAlertDialog
 import com.hritwik.avoid.presentation.ui.theme.PrimaryText
 import com.hritwik.avoid.presentation.viewmodel.auth.AuthServerViewModel
 import com.hritwik.avoid.presentation.viewmodel.player.VideoPlaybackViewModel
 import com.hritwik.avoid.presentation.viewmodel.user.UserDataViewModel
-import com.hritwik.avoid.utils.extensions.getPosterUrl
+import com.hritwik.avoid.utils.constants.AppConstants.RESUME_THRESHOLD
 import com.hritwik.avoid.utils.extensions.resolveSubtitleOffIndex
 import com.hritwik.avoid.utils.helpers.calculateRoundedValue
 import dagger.hilt.android.EntryPointAccessors
 import ir.kaaveh.sdpcompose.sdp
-
-private const val RESUME_THRESHOLD = 10_000_000L
-
-enum class DownloadScope {
-    ALL,
-    UNWATCHED,
-}
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -92,8 +86,10 @@ fun MediaActionButtons(
     onPlayClick: (PlaybackInfo) -> Unit,
     onDownloadClick: (MediaItem, DownloadRequest, String?, DownloadScope) -> Unit,
     playButtonSize: Int = 72,
+    dominantColor: Color = Color(0xFF1976D2),
     showDownload: Boolean = true,
     showMediaInfo: Boolean = true,
+    episodes: List<MediaItem>? = null,
     authViewModel: AuthServerViewModel = hiltViewModel(),
     userDataViewModel: UserDataViewModel = hiltViewModel(),
     videoPlaybackViewModel: VideoPlaybackViewModel = hiltViewModel()
@@ -123,7 +119,7 @@ fun MediaActionButtons(
     var pendingSourceId by remember { mutableStateOf<String?>(null) }
     var showVersionDialog by remember { mutableStateOf(false) }
     var pendingScope by remember { mutableStateOf<DownloadScope?>(null) }
-    var buttonColor by remember { mutableStateOf(Color(0xFF1976D2)) }
+    val buttonColor = dominantColor
     val canDownload = (!mediaItem.isFolder && mediaItem.type in listOf("Movie", "Episode")) || mediaItem.type in listOf("Season", "Series")
     val isSeason = mediaItem.type.equals("Season", ignoreCase = true)
     val seasonDownloads = if (isSeason) {
@@ -174,14 +170,6 @@ fun MediaActionButtons(
         )
     }
 
-    LaunchedEffect(mediaItem.id) {
-        val imageUrl = mediaItem.getPosterUrl(serverUrl)
-        val color = extractDominantColor(imageUrl)
-        if (color != null) {
-            buttonColor = color
-        }
-    }
-
     val resolvedPlaybackItem = videoOptionsState.mediaItem ?: playbackTarget
     val playbackPositionTicks = resolvedPlaybackItem?.userData?.playbackPositionTicks ?: 0L
     val runTimeTicks = resolvedPlaybackItem?.runTimeTicks
@@ -197,46 +185,83 @@ fun MediaActionButtons(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            DynamicPlayButton(
-                onClick = {
-                    playbackItemForActions?.let { itemForPlayback ->
-                        videoPlaybackViewModel.selectStartFromBeginning()
-                        val playbackOptions = playbackState.playbackOptions
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(calculateRoundedValue(12).sdp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                DynamicPlayButton(
+                    onClick = {
+                        playbackItemForActions?.let { itemForPlayback ->
+                            videoPlaybackViewModel.selectStartFromBeginning()
+                            val playbackOptions = playbackState.playbackOptions
 
-                        val playbackInfo = PlaybackInfo(
-                            mediaItem = itemForPlayback,
-                            mediaSourceId = playbackOptions.selectedMediaSource?.id,
-                            audioStreamIndex = playbackOptions.selectedAudioStream?.index,
-                            subtitleStreamIndex = resolveSubtitleIndexForPlayback(playbackOptions),
-                            startPosition = 0L
+                            val playbackInfo = PlaybackInfo(
+                                mediaItem = itemForPlayback,
+                                mediaSourceId = playbackOptions.selectedMediaSource?.id,
+                                audioStreamIndex = playbackOptions.selectedAudioStream?.index,
+                                subtitleStreamIndex = resolveSubtitleIndexForPlayback(playbackOptions),
+                                startPosition = 0L
+                            )
+
+                            onPlayClick(playbackInfo)
+                        }
+                    },
+                    onResumeClick = {
+                        playbackItemForActions?.let { itemForPlayback ->
+                            val resumePositionTicks = itemForPlayback.userData?.playbackPositionTicks ?: 0L
+                            videoPlaybackViewModel.selectResumePlayback(resumePositionTicks)
+                            val playbackOptions = playbackState.playbackOptions
+
+                            val playbackInfo = PlaybackInfo(
+                                mediaItem = itemForPlayback,
+                                mediaSourceId = playbackOptions.selectedMediaSource?.id,
+                                audioStreamIndex = playbackOptions.selectedAudioStream?.index,
+                                subtitleStreamIndex = resolveSubtitleIndexForPlayback(playbackOptions),
+                                startPosition = resumePositionTicks / 10_000
+                            )
+
+                            onPlayClick(playbackInfo)
+                        }
+                    },
+                    dominantColor = buttonColor,
+                    buttonSize = playButtonSize.dp,
+                    iconSize = (playButtonSize / 2).dp,
+                    mediaItem = playbackItemForActions,
+                    hasResumableProgress = hasResumableProgress
+                )
+
+                if (isSeason && !episodes.isNullOrEmpty()) {
+                    IconButton(
+                        onClick = {
+                            val randomEpisode = episodes.random()
+                            videoPlaybackViewModel.initializeVideoOptions(
+                                mediaItem = randomEpisode,
+                                userId = authState.authSession?.userId?.id ?: "",
+                                accessToken = authState.authSession?.accessToken ?: ""
+                            )
+                            videoPlaybackViewModel.selectStartFromBeginning()
+
+                            val playbackInfo = PlaybackInfo(
+                                mediaItem = randomEpisode,
+                                mediaSourceId = randomEpisode.mediaSources.firstOrNull()?.id,
+                                audioStreamIndex = null,
+                                subtitleStreamIndex = null,
+                                startPosition = 0L
+                            )
+
+                            onPlayClick(playbackInfo)
+                        },
+                        modifier = Modifier.size(calculateRoundedValue(48).sdp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Shuffle,
+                            contentDescription = "Shuffle episodes",
+                            tint = PrimaryText,
+                            modifier = Modifier.size(calculateRoundedValue(28).sdp)
                         )
-
-                        onPlayClick(playbackInfo)
                     }
-                },
-                onResumeClick = {
-                    playbackItemForActions?.let { itemForPlayback ->
-                        val resumePositionTicks = itemForPlayback.userData?.playbackPositionTicks ?: 0L
-                        videoPlaybackViewModel.selectResumePlayback(resumePositionTicks)
-                        val playbackOptions = playbackState.playbackOptions
-
-                        val playbackInfo = PlaybackInfo(
-                            mediaItem = itemForPlayback,
-                            mediaSourceId = playbackOptions.selectedMediaSource?.id,
-                            audioStreamIndex = playbackOptions.selectedAudioStream?.index,
-                            subtitleStreamIndex = resolveSubtitleIndexForPlayback(playbackOptions),
-                            startPosition = resumePositionTicks / 10_000
-                        )
-
-                        onPlayClick(playbackInfo)
-                    }
-                },
-                dominantColor = buttonColor,
-                buttonSize = playButtonSize.dp,
-                iconSize = (playButtonSize / 2).dp,
-                mediaItem = playbackItemForActions,
-                hasResumableProgress = hasResumableProgress
-            )
+                }
+            }
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(calculateRoundedValue(8).sdp),
@@ -585,6 +610,7 @@ fun MediaActionButtons(
                     VideoOptionButton(
                         label = "Version",
                         selection = playbackState.currentVersionText,
+                        selectionColor = buttonColor,
                         onClick = { videoPlaybackViewModel.showVersionDialog() }
                     )
                 }
@@ -592,6 +618,7 @@ fun MediaActionButtons(
                 VideoOptionButton(
                     label = "Quality",
                     selection = playbackState.currentVideoQualityText,
+                    selectionColor = PrimaryText,
                     onClick = {
                         if(playbackState.availableVideoQualities.size > 1) {
                             videoPlaybackViewModel.showVideoQualityDialog()
@@ -603,6 +630,7 @@ fun MediaActionButtons(
                     VideoOptionButton(
                         label = "Audio",
                         selection = playbackState.currentAudioText,
+                        selectionColor = if (playbackState.availableAudioStreams.size > 1) buttonColor else PrimaryText,
                         onClick = {
                             if (playbackState.availableAudioStreams.size > 1) {
                                 videoPlaybackViewModel.showAudioDialog()
@@ -615,6 +643,7 @@ fun MediaActionButtons(
                     VideoOptionButton(
                         label = "Subtitles",
                         selection = playbackState.currentSubtitleText,
+                        selectionColor = buttonColor,
                         onClick = { videoPlaybackViewModel.showSubtitleDialog() }
                     )
                 }
@@ -625,6 +654,7 @@ fun MediaActionButtons(
             VersionSelectionDialog(
                 versions = mediaItem.mediaSources,
                 selectedVersion = playbackState.playbackOptions.selectedMediaSource,
+                selectedColor = buttonColor,
                 onVersionSelected = {
                     pendingSourceId = it.id
                     showDownloadMenu = true
@@ -639,6 +669,7 @@ fun MediaActionButtons(
             VersionSelectionDialog(
                 versions = playbackState.availableVersions,
                 selectedVersion = playbackState.playbackOptions.selectedMediaSource,
+                selectedColor = buttonColor,
                 onVersionSelected = { videoPlaybackViewModel.selectVersion(it) },
                 onDismiss = { videoPlaybackViewModel.hideVersionDialog() }
             )
@@ -657,6 +688,7 @@ fun MediaActionButtons(
             AudioTrackDialog(
                 audioStreams = playbackState.availableAudioStreams,
                 selectedAudioStream = playbackState.playbackOptions.selectedAudioStream,
+                selectedColor = buttonColor,
                 onAudioSelected = { videoPlaybackViewModel.selectAudioStream(it) },
                 onDismiss = { videoPlaybackViewModel.hideAudioDialog() }
             )
@@ -666,6 +698,7 @@ fun MediaActionButtons(
             SubtitleDialog(
                 subtitleStreams = playbackState.availableSubtitleStreams,
                 selectedSubtitleStream = playbackState.playbackOptions.selectedSubtitleStream,
+                selectedColor = buttonColor,
                 onSubtitleSelected = { videoPlaybackViewModel.selectSubtitleStream(it) },
                 onDismiss = { videoPlaybackViewModel.hideSubtitleDialog() }
             )
@@ -673,6 +706,7 @@ fun MediaActionButtons(
     }
 }
 
+@OptIn(UnstableApi::class)
 private fun computeSeasonDownloadStatus(
     downloads: List<DownloadInfo>,
     totalEpisodes: Int?,
@@ -691,6 +725,7 @@ private fun computeSeasonDownloadStatus(
     }
 }
 
+@OptIn(UnstableApi::class)
 private fun pauseSeasonDownloads(downloads: List<DownloadInfo>, serviceManager: com.hritwik.avoid.core.ServiceManager) {
     downloads
         .filter { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.QUEUED }
@@ -699,6 +734,7 @@ private fun pauseSeasonDownloads(downloads: List<DownloadInfo>, serviceManager: 
         .forEach { id -> serviceManager.pauseDownload(id) }
 }
 
+@OptIn(UnstableApi::class)
 private fun resumeSeasonDownloads(downloads: List<DownloadInfo>, serviceManager: com.hritwik.avoid.core.ServiceManager) {
     downloads
         .filter { it.status == DownloadStatus.PAUSED }
@@ -707,6 +743,7 @@ private fun resumeSeasonDownloads(downloads: List<DownloadInfo>, serviceManager:
         .forEach { id -> serviceManager.resumeDownload(id) }
 }
 
+@OptIn(UnstableApi::class)
 private fun cancelSeasonDownloads(downloads: List<DownloadInfo>, serviceManager: com.hritwik.avoid.core.ServiceManager) {
     downloads
         .mapNotNull { it.resolveDownloadId() }
@@ -714,6 +751,7 @@ private fun cancelSeasonDownloads(downloads: List<DownloadInfo>, serviceManager:
         .forEach { id -> serviceManager.cancelDownload(id) }
 }
 
+@OptIn(UnstableApi::class)
 private fun DownloadInfo.resolveDownloadId(): String? {
     return mediaSourceId ?: mediaItem.mediaSources.firstOrNull()?.id ?: mediaItem.id
 }
@@ -723,31 +761,41 @@ private fun DownloadScopeDialog(
     onSelect: (DownloadScope) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    SelectionDialog(
+    val (selectedScope, setSelectedScope) = remember { mutableStateOf(DownloadScope.ALL) }
+    VoidAlertDialog(
+        visible = true,
         title = "Download episodes",
-        onDismiss = onDismiss
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(calculateRoundedValue(8).sdp)) {
-            SelectionItem(
-                title = "Download all episodes",
-                subtitle = "Includes watched episodes",
-                isSelected = true,
-                onClick = { onSelect(DownloadScope.ALL) }
-            )
-            SelectionItem(
-                title = "Download unwatched only",
-                subtitle = "Skips already watched episodes",
-                isSelected = false,
-                onClick = { onSelect(DownloadScope.UNWATCHED) }
-            )
+        onDismissRequest = onDismiss,
+        dismissText = "Cancel",
+        onDismissButton = onDismiss,
+        content = {
+            Column(verticalArrangement = Arrangement.spacedBy(calculateRoundedValue(8).sdp)) {
+                SelectionItem(
+                    title = "Download all episodes",
+                    isSelected = selectedScope == DownloadScope.ALL,
+                    onClick = {
+                        setSelectedScope(DownloadScope.ALL)
+                        onSelect(DownloadScope.ALL)
+                    }
+                )
+                SelectionItem(
+                    title = "Download unwatched only",
+                    isSelected = selectedScope == DownloadScope.UNWATCHED,
+                    onClick = {
+                        setSelectedScope(DownloadScope.UNWATCHED)
+                        onSelect(DownloadScope.UNWATCHED)
+                    }
+                )
+            }
         }
-    }
+    )
 }
 
 @Composable
 private fun VideoOptionButton(
     label: String,
     selection: String,
+    selectionColor: Color = PrimaryText,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -771,7 +819,7 @@ private fun VideoOptionButton(
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
             textAlign = TextAlign.End,
-            color = PrimaryText,
+            color = selectionColor,
             overflow = TextOverflow.Ellipsis,
             maxLines = 1,
             modifier = Modifier
